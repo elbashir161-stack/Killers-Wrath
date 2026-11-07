@@ -2,7 +2,7 @@ import java.util.Random;
 import javax.microedition.lcdui.Font;
 import javax.microedition.lcdui.Graphics;
 
-/** Spawns pedestrians, owns the houses' doors and spreads panic by sound. */
+/** Pedestrians live around Killer; far-away ones are recycled near him. */
 public class NpcManager {
     private static final Random R = new Random();
 
@@ -12,52 +12,57 @@ public class NpcManager {
     }
 
     public final Npc[] npcs;
-    public final int[] doorX = new int[64];
-    public final int[] doorY = new int[64];
-    public final int[] doorUse = new int[64];
+    public final int[] doorX;
+    public final int[] doorY;
+    public final int[] doorUse;
+    private final World world;
+    private int tick = 0;
 
     public NpcManager(World w, Player k, int count) {
-        // every house door in the test city (matches World.generate)
-        int i = 0;
-        for (int bx = 0; bx < 4; bx++) {
-            for (int by = 0; by < 4; by++) {
-                for (int s = 0; s < 2; s++) {
-                    for (int r = 0; r < 2; r++) {
-                        int dtx = bx * 16 + (s == 0 ? 2 : 12);
-                        int dty = by * 16 + (r == 0 ? 4 : 14);
-                        if (dty + 1 >= World.MH - 1) {
-                            doorX[i] = -1;
-                        } else {
-                            doorX[i] = dtx * World.TS + 8;
-                            doorY[i] = (dty + 1) * World.TS + 8;
-                        }
-                        i++;
-                    }
-                }
-            }
-        }
+        world = w;
+        doorX = w.doorX;
+        doorY = w.doorY;
+        doorUse = new int[World.MAXDOORS];
         npcs = new Npc[count];
-        int placed = 0, tries = 0;
-        while (placed < count && tries < count * 200) {
-            tries++;
-            int tx = 1 + rnd(World.MW - 2), ty = 1 + rnd(World.MH - 2);
-            int lx = tx % 16, ly = ty % 16;
-            if (lx == 7 || lx == 8 || ly == 7 || ly == 8) continue;
-            if (!(lx == 6 || lx == 9 || ly == 6 || ly == 9)) continue; // sidewalks only
-            int px = tx * World.TS + 8, py = ty * World.TS + 12;
-            if (w.solidAt(px, py)) continue;
-            int dx = px - k.x, dy = py - k.y;
-            if (dx * dx + dy * dy < 100 * 100) continue;
+        for (int i = 0; i < count; i++) {
+            int[] p = placeAround(k, 100, 560);
+            int px = (p != null) ? p[0] : k.x + 120;
+            int py = (p != null) ? p[1] : k.y;
             int r = rnd(100);
-            int p = (r < 10) ? Npc.P_BRAVE : (r < 25) ? Npc.P_COWARD : (r < 40) ? Npc.P_FROZEN
+            int pers = (r < 10) ? Npc.P_BRAVE : (r < 25) ? Npc.P_COWARD : (r < 40) ? Npc.P_FROZEN
                     : (r < 55) ? Npc.P_PANIC : Npc.P_NORMAL;
-            npcs[placed++] = new Npc(px, py, rnd(NpcSprites.LOOKS), p);
+            npcs[i] = new Npc(px, py, rnd(NpcSprites.LOOKS), pers);
         }
-        for (int j = placed; j < count; j++) npcs[j] = new Npc(8 * World.TS, 24 * World.TS, 0, Npc.P_NORMAL);
+    }
+
+    /** A random sidewalk spot between minD and maxD pixels from Killer, or null. */
+    private int[] placeAround(Player k, int minD, int maxD) {
+        int rad = maxD / World.TS + 1;
+        for (int i = 0; i < 80; i++) {
+            int tx = k.x / World.TS + rnd(2 * rad + 1) - rad;
+            int ty = k.y / World.TS + rnd(2 * rad + 1) - rad;
+            if (!world.isSidewalk(tx, ty)) continue;
+            int px = tx * World.TS + 8, py = ty * World.TS + 12;
+            int dx = px - k.x, dy = py - k.y;
+            int d2 = dx * dx + dy * dy;
+            if (d2 < minD * minD || d2 > maxD * maxD) continue;
+            return new int[] {px, py};
+        }
+        return null;
     }
 
     public void update(World w, Player k) {
         for (int i = 0; i < npcs.length; i++) npcs[i].update(this, w, k);
+        // recycle one far-away calm pedestrian per tick next to Killer's surroundings
+        tick++;
+        Npc n = npcs[tick % npcs.length];
+        if (n.state == Npc.NORMAL) {
+            int dx = n.x - k.x, dy = n.y - k.y;
+            if (dx * dx + dy * dy > 640 * 640) {
+                int[] p = placeAround(k, 320, 560);
+                if (p != null) n.reset(p[0], p[1]);
+            }
+        }
     }
 
     /** A pedestrian shouts: calm neighbours within earshot become alarmed. */
@@ -66,17 +71,17 @@ public class NpcManager {
             Npc n = npcs[i];
             if (n == s || n.state != Npc.NORMAL || n.personality == Npc.P_BRAVE) continue;
             int dx = n.x - s.x, dy = n.y - s.y;
-            if (dx * dx + dy * dy < 110 * 110) {
+            if (dx * dx + dy * dy < 180 * 180) {
                 n.startRecognise(s.fx, s.fy, true, 6 + rnd(14));
             }
         }
     }
 
-    /** Nearest free house door that is reachable from the south side, or -1. */
+    /** Nearest free house door that can be reached from the south side, or -1. */
     public int findDoor(int x, int y) {
-        int best = -1, bestD = 220 * 220;
-        for (int i = 0; i < 64; i++) {
-            if (doorX[i] < 0 || doorUse[i] >= 2) continue;
+        int best = -1, bestD = 320 * 320;
+        for (int i = 0; i < world.doorCount; i++) {
+            if (doorUse[i] >= 2) continue;
             if (y < doorY[i] - 8) continue;
             int dx = doorX[i] - x, dy = doorY[i] - y;
             int d = dx * dx + dy * dy;
@@ -94,7 +99,7 @@ public class NpcManager {
             if (n.state == Npc.INSIDE) continue;
             if (below != (n.y > py)) continue;
             int sx = n.x - camX, sy = n.y - camY;
-            if (sx < -16 || sx > sw + 16 || sy < -8 || sy > sh + 30) continue;
+            if (sx < -20 || sx > sw + 20 || sy < -8 || sy > sh + 34) continue;
             n.draw(g, camX, camY);
         }
     }

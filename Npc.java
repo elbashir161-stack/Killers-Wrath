@@ -25,6 +25,19 @@ public class Npc {
         this.idle = NpcManager.rnd(40);
     }
 
+    /** Put this pedestrian somewhere else, calm again. */
+    public void reset(int nx, int ny) {
+        x = nx;
+        y = ny;
+        state = NORMAL;
+        idle = NpcManager.rnd(40);
+        walkT = 0;
+        frame = 0;
+        bubble = null;
+        bubbleT = 0;
+        door = -1;
+    }
+
     // ---------------- main update ----------------
 
     public void update(NpcManager m, World w, Player k) {
@@ -198,7 +211,7 @@ public class Npc {
             frame = 0;
         }
         if (timer > 0) timer--;
-        if (timer <= 0 && dist2(k.x, k.y) > 150 * 150) {
+        if (timer <= 0 && dist2(k.x, k.y) > 260 * 260) {
             state = NORMAL;
             idle = 30;
             walkT = 0;
@@ -209,7 +222,7 @@ public class Npc {
         timer--;
         if (timer > 0) return;
         int ddx = k.x - m.doorX[door], ddy = k.y - m.doorY[door];
-        if (ddx * ddx + ddy * ddy > 130 * 130) {
+        if (ddx * ddx + ddy * ddy > 220 * 220) {
             m.doorUse[door]--;
             x = m.doorX[door];
             y = m.doorY[door];
@@ -227,12 +240,12 @@ public class Npc {
         frame = 0;
         faceTo(k.x, k.y);
         int d2 = dist2(k.x, k.y);
-        if (d2 > 130 * 130) {
+        if (d2 > 220 * 220) {
             state = NORMAL;
             idle = 10;
             return;
         }
-        if (d2 < 70 * 70 && sayCool == 0) {
+        if (d2 < 120 * 120 && sayCool == 0) {
             say("Back off!", 40);
             sayCool = 120;
         }
@@ -242,8 +255,8 @@ public class Npc {
 
     private boolean canSee(World w, Player k) {
         int d2 = dist2(k.x, k.y);
-        if (d2 > 110 * 110) return false;
-        if (d2 >= 40 * 40) {
+        if (d2 > 200 * 200) return false;
+        if (d2 >= 70 * 70) {
             int fxd = (dir == Sprites.LEFT) ? -1 : (dir == Sprites.RIGHT ? 1 : 0);
             int fyd = (dir == Sprites.UP) ? -1 : (dir == Sprites.DOWN ? 1 : 0);
             if ((k.x - x) * fxd + (k.y - y) * fyd <= 0) return false;

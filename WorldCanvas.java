@@ -1,5 +1,6 @@
 import javax.microedition.lcdui.Font;
 import javax.microedition.lcdui.Graphics;
+import javax.microedition.lcdui.Image;
 import javax.microedition.lcdui.game.GameCanvas;
 
 /** Game loop, camera and rendering. */
@@ -10,6 +11,7 @@ public class WorldCanvas extends GameCanvas implements Runnable {
     private final World world;
     private final Player player;
     private final NpcManager npcs;
+    private final Image mini;
     private final Font font = Font.getFont(Font.FACE_SYSTEM, Font.STYLE_BOLD, Font.SIZE_SMALL);
     private Thread thread;
     private volatile boolean running = false;
@@ -22,8 +24,10 @@ public class WorldCanvas extends GameCanvas implements Runnable {
         Sprites.init();
         NpcSprites.init();
         world = new World();
-        player = new Player(8 * World.TS, 8 * World.TS); // middle of first intersection
-        npcs = new NpcManager(world, player, 28);
+        mini = world.buildMinimap();
+        // start on the pavement beside the central avenue, downtown
+        player = new Player(380 * World.TS + 8, 120 * World.TS + 8);
+        npcs = new NpcManager(world, player, 36);
     }
 
     public synchronized void start() {
@@ -66,7 +70,7 @@ public class WorldCanvas extends GameCanvas implements Runnable {
     private void render(Graphics g) {
         int sw = getWidth(), sh = getHeight();
         int camX = player.x - sw / 2;
-        int camY = player.y - 12 - sh / 2;
+        int camY = player.y - 14 - sh / 2;
         int maxX = World.MW * World.TS - sw, maxY = World.MH * World.TS - sh;
         if (camX > maxX) camX = maxX;
         if (camX < 0) camX = 0;
@@ -79,6 +83,7 @@ public class WorldCanvas extends GameCanvas implements Runnable {
         npcs.drawNpcs(g, camX, camY, sw, sh, player.y, false);
         player.draw(g, camX, camY);
         npcs.drawNpcs(g, camX, camY, sw, sh, player.y, true);
+        world.drawCrowns(g, camX, camY, sw, sh);
         npcs.drawBubbles(g, font, camX, camY);
 
         g.setFont(font);
@@ -94,6 +99,17 @@ public class WorldCanvas extends GameCanvas implements Runnable {
             g.setColor(0xFFFFFF);
             g.drawString("Fleeing: " + npcs.count(Npc.FLEEING) + "  Hiding: " + npcs.count(Npc.INSIDE),
                     4, 1, Graphics.TOP | Graphics.LEFT);
+        }
+
+        // minimap
+        if (sw >= 160) {
+            int mw = mini.getWidth(), mh = mini.getHeight();
+            int mx = sw - mw - 3, my = font.getHeight() + 5;
+            g.drawImage(mini, mx, my, Graphics.TOP | Graphics.LEFT);
+            g.setColor(0xFFFFFF);
+            g.drawRect(mx - 1, my - 1, mw + 1, mh + 1);
+            g.setColor(0xFF0000);
+            g.fillRect(mx + player.x / (World.TS * 8) - 1, my + player.y / (World.TS * 8) - 1, 3, 3);
         }
     }
 }
