@@ -7,12 +7,12 @@ public class VehicleManager {
     private final World world;
     private int tick = 0;
 
-    public VehicleManager(World w, Player k, int count) {
+    public VehicleManager(World w, Player k, int count, boolean starters) {
         world = w;
         list = new Vehicle[count];
         int n = 0;
         // starter vehicles parked along the avenue beside Killer's start
-        if (count >= 4) {
+        if (starters && count >= 4) {
             list[n++] = new Vehicle(VehicleKit.MOTO, 0, Vehicle.HUP, k.x + 20, k.y + 30);
             list[n++] = new Vehicle(VehicleKit.SEDAN, 0, Vehicle.HUP, k.x + 24, k.y - 80);
             list[n++] = new Vehicle(VehicleKit.SPORTS, 1, Vehicle.HUP, k.x + 24, k.y + 160);

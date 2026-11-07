@@ -88,6 +88,54 @@ public class World {
         return solidT[map[(py / TS) * MW + (px / TS)]];
     }
 
+    /** Name of the part of the city at this pixel position (shown on screen and in save slots). */
+    public String districtName(int px, int py) {
+        int tx = px / TS, ty = py / TS;
+        if (get(tx, ty) == WATER) return "Riverside";
+        int c = 0;
+        for (int i = 0; i < 7; i++) if (tx > VX[i]) c++;
+        int r = 0;
+        for (int i = 0; i < 5; i++) if (ty > HY[i]) r++;
+        if (r == 5) return "Highway";
+        if (r == 1 && c >= 5) return "Airport";
+        if (r == 0 && c >= 5) return "North Woods";
+        if (c == 0 || c == 7) return "Outskirts";
+        switch (r * 10 + c) {
+            case 12: return "Hospital";
+            case 13: return "City Park";
+            case 21: return "Mall";
+            case 22: return "Market";
+            case 23: case 24: return "Downtown";
+            case 25: return "Police HQ";
+            case 31: return "School";
+            case 32: return "Clothes Row";
+            case 33: return "Food Street";
+            case 34: return "Fire Station";
+            case 35: return "Bank";
+            case 36: return "Hotel";
+            case 41: return "Weapons Alley";
+            case 42: return "Corner Shop";
+            case 45: return "Gold Dome";
+            case 46: return "Gas Station";
+            default: return "Residential";
+        }
+    }
+
+    /** Nearest standing place to (px,py) that is not inside a wall, tree or water. */
+    public int[] safeSpot(int px, int py) {
+        for (int r = 0; r < 40; r++) {
+            for (int dy = -r; dy <= r; dy++) {
+                for (int dx = -r; dx <= r; dx++) {
+                    if ((dx < 0 ? -dx : dx) != r && (dy < 0 ? -dy : dy) != r) continue;
+                    int x = px + dx * 8, y = py + dy * 8;
+                    if (!solidTerrain(x - 4, y - 5) && !solidTerrain(x + 3, y - 5)
+                            && !solidTerrain(x - 4, y - 1) && !solidTerrain(x + 3, y - 1)) return new int[] {x, y};
+                }
+            }
+        }
+        return new int[] {380 * TS + 8, 120 * TS + 8};
+    }
+
     // ===================== drawing =====================
 
     public void draw(Graphics g, int camX, int camY, int sw, int sh) {

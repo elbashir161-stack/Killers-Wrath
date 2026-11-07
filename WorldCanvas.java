@@ -3,7 +3,7 @@ import javax.microedition.lcdui.Graphics;
 import javax.microedition.lcdui.Image;
 import javax.microedition.lcdui.game.GameCanvas;
 
-/** Game loop, camera and rendering. */
+/** Game loop, camera, rendering, pause menu and saving. */
 public class WorldCanvas extends GameCanvas implements Runnable {
     private static final int FRAME_MS = 40; // 25 fps
 
@@ -21,6 +21,16 @@ public class WorldCanvas extends GameCanvas implements Runnable {
     private String msg = null;
     private int msgT = 0;
     private int ticks = 0;
+    private int played = 0;          // play time in ticks (25 per second), saved
+
+    // pause menu: 0 none, 1 main, 2 save slots, 3 confirm quit
+    private volatile int menuMode = 0;
+    private int menuSel = 0;
+    private final String[] slotLabel = new String[SaveManager.SLOTS];
+
+    // district banner
+    private String district = "";
+    private int bannerT = 0;
 
     // everything that stands in the world is drawn back-to-front (sorted by its feet / base line)
     private final int[] dk = new int[1024];
@@ -28,7 +38,7 @@ public class WorldCanvas extends GameCanvas implements Runnable {
     private final int[] di = new int[1024];
     private int dn = 0;
 
-    public WorldCanvas(KillersWrath midlet) {
+    public WorldCanvas(KillersWrath midlet, SaveData save) {
         super(true);
         this.midlet = midlet;
         setFullScreenMode(true);
@@ -36,12 +46,23 @@ public class WorldCanvas extends GameCanvas implements Runnable {
         NpcSprites.init();
         world = new World();
         mini = world.buildMinimap();
-        // start on the pavement beside the central avenue, downtown
-        player = new Player(380 * World.TS + 8, 120 * World.TS + 8);
-        vehicles = new VehicleManager(world, player, 56);
+        int sx = 380 * World.TS + 8, sy = 120 * World.TS + 8;   // pavement beside the central avenue
+        boolean starters = true;
+        if (save != null) {
+            int[] p = world.safeSpot(save.px, save.py);
+            sx = p[0];
+            sy = p[1];
+            played = save.playTicks;
+            starters = false;
+        }
+        player = new Player(sx, sy);
+        vehicles = new VehicleManager(world, player, 56, starters);
         world.vehicles = vehicles;
         npcs = new NpcManager(world, player, 36);
         world.npcs = npcs;
+        if (save != null) npcs.kills = save.kills;
+        district = world.districtName(sx, sy);
+        bannerT = 90;
     }
 
     public synchronized void start() {
@@ -58,36 +79,124 @@ public class WorldCanvas extends GameCanvas implements Runnable {
     protected void showNotify() { start(); }
     protected void hideNotify() { stop(); }
 
+    // ---------------- input ----------------
+
     protected void keyPressed(int keyCode) {
-        if (keyCode == KEY_STAR) midlet.notifyDestroyed();
+        if (menuMode != 0) {
+            menuKey(keyCode);
+            return;
+        }
+        if (keyCode == KEY_STAR) {
+            menuMode = 1;
+            menuSel = 0;
+            interact = false;
+            return;
+        }
         if (keyCode == KEY_POUND || keyCode == KEY_NUM0) interact = true;
     }
+
+    private void menuKey(int keyCode) {
+        int ga = 0;
+        try {
+            ga = getGameAction(keyCode);
+        } catch (Exception e) {
+            // ignore
+        }
+        int n = (menuMode == 1) ? 3 : (menuMode == 2) ? SaveManager.SLOTS + 1 : 2;
+        if (ga == UP) menuSel = (menuSel + n - 1) % n;
+        else if (ga == DOWN) menuSel = (menuSel + 1) % n;
+        else if (ga == FIRE || keyCode == KEY_NUM5) menuSelect();
+        else if (keyCode == KEY_STAR) {
+            if (menuMode == 1) menuMode = 0;
+            else { menuMode = 1; menuSel = 0; }
+        }
+    }
+
+    private void menuSelect() {
+        if (menuMode == 1) {
+            if (menuSel == 0) menuMode = 0;
+            else if (menuSel == 1) {
+                for (int i = 0; i < SaveManager.SLOTS; i++) slotLabel[i] = slotText(i);
+                menuMode = 2;
+                menuSel = 0;
+            } else { menuMode = 3; menuSel = 1; }
+        } else if (menuMode == 2) {
+            if (menuSel < SaveManager.SLOTS) doSave(menuSel);
+            else { menuMode = 1; menuSel = 1; }
+        } else {
+            if (menuSel == 0) {
+                menuMode = 0;
+                midlet.showTitle();
+            } else { menuMode = 1; menuSel = 2; }
+        }
+    }
+
+    private String slotText(int i) {
+        SaveData d = SaveManager.load(i);
+        if (!d.used) return "Slot " + (i + 1) + ": empty";
+        return "Slot " + (i + 1) + ": " + clock(d.playTicks) + "  " + world.districtName(d.px, d.py);
+    }
+
+    private static String clock(int tks) {
+        int s = tks / 25;
+        int h = s / 3600, m = (s % 3600) / 60, sec = s % 60;
+        String r = (h > 0) ? h + ":" + (m < 10 ? "0" : "") + m : "" + m;
+        return r + ":" + (sec < 10 ? "0" : "") + sec;
+    }
+
+    private void doSave(int slot) {
+        SaveData d = new SaveData();
+        d.px = player.x;
+        d.py = player.y;
+        d.kills = npcs.kills;
+        d.playTicks = played;
+        d.health = 100;
+        d.money = 0;
+        d.stamp = System.currentTimeMillis();
+        boolean ok = SaveManager.save(slot, d);
+        say(ok ? "Saved to slot " + (slot + 1) : "Could not save", 70);
+        menuMode = 1;
+        menuSel = 1;
+    }
+
+    // ---------------- main loop ----------------
 
     public void run() {
         Graphics g = getGraphics();
         while (running) {
             long t0 = System.currentTimeMillis();
-            if (interact) {
-                interact = false;
-                toggleVehicle();
+            if (menuMode == 0) {
+                if (interact) {
+                    interact = false;
+                    toggleVehicle();
+                }
+                int keys = getKeyStates();
+                if (driving != null) {
+                    driving.drive(keys, world, vehicles);
+                    player.x = driving.x;
+                    player.y = driving.y;
+                } else {
+                    player.update(keys, world);
+                }
+                npcs.driven = driving;
+                npcs.playerOnFoot = (driving == null);
+                vehicles.update(player);
+                npcs.update(world, player);
+                if (driving != null) npcs.vehicleHit(driving);
+                ticks++;
+                played++;
+                if (ticks % 10 == 0) {
+                    String dn2 = world.districtName(player.x, player.y);
+                    if (!dn2.equals(district)) {
+                        district = dn2;
+                        bannerT = 75;
+                    }
+                }
+                if (bannerT > 0) bannerT--;
             }
-            int keys = getKeyStates();
-            if (driving != null) {
-                driving.drive(keys, world, vehicles);
-                player.x = driving.x;
-                player.y = driving.y;
-            } else {
-                player.update(keys, world);
-            }
-            npcs.driven = driving;
-            npcs.playerOnFoot = (driving == null);
-            vehicles.update(player);
-            npcs.update(world, player);
-            if (driving != null) npcs.vehicleHit(driving);
+            if (msgT > 0) msgT--;
             render(g);
             flushGraphics();
-            ticks++;
-            if (msgT > 0) msgT--;
             long wait = FRAME_MS - (System.currentTimeMillis() - t0);
             if (wait < 5) wait = 5;
             try {
@@ -237,7 +346,7 @@ public class WorldCanvas extends GameCanvas implements Runnable {
             int spd = driving.sp < 0 ? -driving.sp : driving.sp;
             line = (spd * 90 / 256) + " km/h" + (driving.sp < 0 ? " R" : "") + "   # = get out";
         } else if (vehicles.nearest(player.x, player.y, 40) != null) line = "# = get in";
-        else if (ticks < 150) line = "Arrows: move  FIRE: run  *: quit";
+        else if (ticks < 150) line = "Arrows: move  FIRE: run  *: menu";
         if (line != null) {
             g.setColor(0x000000);
             g.fillRect(0, sh - font.getHeight() - 3, sw, font.getHeight() + 3);
@@ -245,15 +354,76 @@ public class WorldCanvas extends GameCanvas implements Runnable {
             g.drawString(line, 4, sh - font.getHeight() - 1, Graphics.TOP | Graphics.LEFT);
         }
 
+        if (bannerT > 0 && menuMode == 0) {
+            int bw = font.stringWidth(district) + 16, bh = font.getHeight() + 6;
+            int bx = (sw - bw) / 2, by = font.getHeight() + 8;
+            g.setColor(0x050806);
+            g.fillRect(bx, by, bw, bh);
+            g.setColor(0x8A1414);
+            g.drawRect(bx, by, bw - 1, bh - 1);
+            g.setColor(0xE8C23A);
+            g.drawString(district, sw / 2, by + 3, Graphics.TOP | Graphics.HCENTER);
+        }
+
         // minimap
         if (sw >= 160) {
             int mw = mini.getWidth(), mh = mini.getHeight();
-            int mx = sw - mw - 3, my = font.getHeight() + 5;
+            int mx = sw - mw - 3, my = sh - mh - font.getHeight() - 8;
             g.drawImage(mini, mx, my, Graphics.TOP | Graphics.LEFT);
             g.setColor(0xFFFFFF);
             g.drawRect(mx - 1, my - 1, mw + 1, mh + 1);
             g.setColor(0xFF0000);
             g.fillRect(mx + player.x / (World.TS * 8) - 1, my + player.y / (World.TS * 8) - 1, 3, 3);
+        }
+
+        if (menuMode != 0) drawMenu(g, sw, sh);
+    }
+
+    private void drawMenu(Graphics g, int sw, int sh) {
+        String head;
+        String[] items;
+        if (menuMode == 1) {
+            head = "PAUSED";
+            items = new String[] {"Resume", "Save Game", "Quit to Title"};
+        } else if (menuMode == 2) {
+            head = "SAVE GAME";
+            items = new String[SaveManager.SLOTS + 1];
+            for (int i = 0; i < SaveManager.SLOTS; i++) items[i] = slotLabel[i];
+            items[SaveManager.SLOTS] = "Back";
+        } else {
+            head = "QUIT TO TITLE?";
+            items = new String[] {"Yes, quit", "No, keep playing"};
+        }
+        int lineH = font.getHeight() + 7;
+        int boxW = sw - 20;
+        if (boxW > 230) boxW = 230;
+        int extra = (menuMode == 3) ? lineH : 0;
+        int boxH = lineH * (items.length + 1) + 14 + extra;
+        int bx = (sw - boxW) / 2, by = (sh - boxH) / 2;
+        g.setColor(0x050806);
+        g.fillRect(bx, by, boxW, boxH);
+        g.setColor(0x8A1414);
+        g.drawRect(bx, by, boxW - 1, boxH - 1);
+        g.drawRect(bx + 2, by + 2, boxW - 5, boxH - 5);
+        g.setFont(font);
+        g.setColor(0xC41818);
+        g.drawString(head, sw / 2, by + 8, Graphics.TOP | Graphics.HCENTER);
+        int y = by + 8 + lineH;
+        if (menuMode == 3) {
+            g.setColor(0x9AA890);
+            g.drawString("Unsaved progress is lost", sw / 2, y - 4, Graphics.TOP | Graphics.HCENTER);
+            y += lineH;
+        }
+        for (int i = 0; i < items.length; i++) {
+            if (i == menuSel) {
+                g.setColor(0x3A0A0A);
+                g.fillRect(bx + 5, y - 3, boxW - 10, lineH - 1);
+                g.setColor(0xE8C23A);
+            } else {
+                g.setColor(0x8A9A8E);
+            }
+            g.drawString(items[i], bx + 12, y, Graphics.TOP | Graphics.LEFT);
+            y += lineH;
         }
     }
 }
