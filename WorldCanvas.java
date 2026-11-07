@@ -9,6 +9,7 @@ public class WorldCanvas extends GameCanvas implements Runnable {
     private final KillersWrath midlet;
     private final World world;
     private final Player player;
+    private final NpcManager npcs;
     private final Font font = Font.getFont(Font.FACE_SYSTEM, Font.STYLE_BOLD, Font.SIZE_SMALL);
     private Thread thread;
     private volatile boolean running = false;
@@ -19,8 +20,10 @@ public class WorldCanvas extends GameCanvas implements Runnable {
         this.midlet = midlet;
         setFullScreenMode(true);
         Sprites.init();
+        NpcSprites.init();
         world = new World();
         player = new Player(8 * World.TS, 8 * World.TS); // middle of first intersection
+        npcs = new NpcManager(world, player, 28);
     }
 
     public synchronized void start() {
@@ -46,6 +49,7 @@ public class WorldCanvas extends GameCanvas implements Runnable {
         while (running) {
             long t0 = System.currentTimeMillis();
             player.update(getKeyStates(), world);
+            npcs.update(world, player);
             render(g);
             flushGraphics();
             ticks++;
@@ -72,17 +76,24 @@ public class WorldCanvas extends GameCanvas implements Runnable {
         g.setColor(0x000000);
         g.fillRect(0, 0, sw, sh);
         world.draw(g, camX, camY, sw, sh);
+        npcs.drawNpcs(g, camX, camY, sw, sh, player.y, false);
         player.draw(g, camX, camY);
+        npcs.drawNpcs(g, camX, camY, sw, sh, player.y, true);
+        npcs.drawBubbles(g, font, camX, camY);
 
         g.setFont(font);
+        g.setColor(0x000000);
+        g.fillRect(0, 0, sw, font.getHeight() + 2);
         if (ticks < 150) {
-            g.setColor(0x000000);
-            g.fillRect(0, 0, sw, font.getHeight() + 2);
             g.setColor(0xE01010);
             g.drawString("KILLER'S WRATH", 4, 1, Graphics.TOP | Graphics.LEFT);
             g.setColor(0xFFFFFF);
             g.drawString("Arrows: move   FIRE: run   *: quit", 4, sh - font.getHeight() - 1,
                     Graphics.TOP | Graphics.LEFT);
+        } else {
+            g.setColor(0xFFFFFF);
+            g.drawString("Fleeing: " + npcs.count(Npc.FLEEING) + "  Hiding: " + npcs.count(Npc.INSIDE),
+                    4, 1, Graphics.TOP | Graphics.LEFT);
         }
     }
 }
