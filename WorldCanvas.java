@@ -22,6 +22,9 @@ public class WorldCanvas extends GameCanvas implements Runnable {
     private int msgT = 0;
     private int ticks = 0;
     private int played = 0;          // play time in ticks (25 per second), saved
+    private int autoT = 0;           // counts up to the next autosave
+    private String menuNote = null;  // result of the last save, shown in the menu
+    private boolean noteOk = true;
 
     // pause menu: 0 none, 1 main, 2 save slots, 3 confirm quit
     private volatile int menuMode = 0;
@@ -89,6 +92,7 @@ public class WorldCanvas extends GameCanvas implements Runnable {
         if (keyCode == KEY_STAR) {
             menuMode = 1;
             menuSel = 0;
+            menuNote = null;
             interact = false;
             return;
         }
@@ -125,6 +129,7 @@ public class WorldCanvas extends GameCanvas implements Runnable {
             else { menuMode = 1; menuSel = 1; }
         } else {
             if (menuSel == 0) {
+                autoSave();
                 menuMode = 0;
                 midlet.showTitle();
             } else { menuMode = 1; menuSel = 2; }
@@ -144,7 +149,7 @@ public class WorldCanvas extends GameCanvas implements Runnable {
         return r + ":" + (sec < 10 ? "0" : "") + sec;
     }
 
-    private void doSave(int slot) {
+    private SaveData snapshot() {
         SaveData d = new SaveData();
         d.px = player.x;
         d.py = player.y;
@@ -153,8 +158,17 @@ public class WorldCanvas extends GameCanvas implements Runnable {
         d.health = 100;
         d.money = 0;
         d.stamp = System.currentTimeMillis();
-        boolean ok = SaveManager.save(slot, d);
-        say(ok ? "Saved to slot " + (slot + 1) : "Could not save", 70);
+        return d;
+    }
+
+    private void autoSave() {
+        SaveManager.save(SaveManager.AUTO, snapshot());
+    }
+
+    private void doSave(int slot) {
+        boolean ok = SaveManager.save(slot, snapshot());
+        noteOk = ok;
+        menuNote = ok ? "Saved to slot " + (slot + 1) : "Save failed: " + SaveManager.lastError;
         menuMode = 1;
         menuSel = 1;
     }
@@ -185,6 +199,11 @@ public class WorldCanvas extends GameCanvas implements Runnable {
                 if (driving != null) npcs.vehicleHit(driving);
                 ticks++;
                 played++;
+                autoT++;
+                if (autoT >= 750) {
+                    autoT = 0;
+                    autoSave();
+                }
                 if (ticks % 10 == 0) {
                     String dn2 = world.districtName(player.x, player.y);
                     if (!dn2.equals(district)) {
@@ -398,7 +417,8 @@ public class WorldCanvas extends GameCanvas implements Runnable {
         int boxW = sw - 20;
         if (boxW > 230) boxW = 230;
         int extra = (menuMode == 3) ? lineH : 0;
-        int boxH = lineH * (items.length + 1) + 14 + extra;
+        int noteH = (menuNote != null && menuMode != 3) ? lineH * 2 : 0;
+        int boxH = lineH * (items.length + 1) + 14 + extra + noteH;
         int bx = (sw - boxW) / 2, by = (sh - boxH) / 2;
         g.setColor(0x050806);
         g.fillRect(bx, by, boxW, boxH);
@@ -409,9 +429,23 @@ public class WorldCanvas extends GameCanvas implements Runnable {
         g.setColor(0xC41818);
         g.drawString(head, sw / 2, by + 8, Graphics.TOP | Graphics.HCENTER);
         int y = by + 8 + lineH;
+        if (noteH > 0) {
+            g.setColor(noteOk ? 0x58C060 : 0xE05050);
+            String n1 = menuNote, n2 = null;
+            int maxW = boxW - 16;
+            if (font.stringWidth(n1) > maxW) {
+                int cut = n1.length();
+                while (cut > 1 && font.stringWidth(n1.substring(0, cut)) > maxW) cut--;
+                n2 = n1.substring(cut);
+                n1 = n1.substring(0, cut);
+            }
+            g.drawString(n1, bx + 8, y - 4, Graphics.TOP | Graphics.LEFT);
+            if (n2 != null) g.drawString(n2, bx + 8, y - 4 + font.getHeight(), Graphics.TOP | Graphics.LEFT);
+            y += lineH * 2;
+        }
         if (menuMode == 3) {
             g.setColor(0x9AA890);
-            g.drawString("Unsaved progress is lost", sw / 2, y - 4, Graphics.TOP | Graphics.HCENTER);
+            g.drawString("Your progress is autosaved", sw / 2, y - 4, Graphics.TOP | Graphics.HCENTER);
             y += lineH;
         }
         for (int i = 0; i < items.length; i++) {
