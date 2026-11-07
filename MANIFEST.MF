@@ -1,0 +1,6 @@
+MIDlet-1: Killer's Wrath,,KillersWrath
+MIDlet-Name: Killer's Wrath
+MIDlet-Vendor: Dev
+MIDlet-Version: 0.1.0
+MicroEdition-Configuration: CLDC-1.1
+MicroEdition-Profile: MIDP-2.0
