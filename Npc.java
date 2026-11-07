@@ -268,7 +268,7 @@ public class Npc {
         for (int i = 1; i < 8; i++) {
             int px = x1 + (x2 - x1) * i / 8;
             int py = y1 + (y2 - y1) * i / 8 - 2;
-            if (w.solidAt(px, py)) return false;
+            if (w.solidTerrain(px, py)) return false;
         }
         return true;
     }

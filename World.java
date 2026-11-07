@@ -37,6 +37,12 @@ public class World {
     public final int[] doorY = new int[MAXDOORS];
     public int doorCount = 0;
 
+    // car-park bays (centres in px) and the vehicle system
+    public final int[] stallX = new int[8192];
+    public final int[] stallY = new int[8192];
+    public int stallCount = 0;
+    public VehicleManager vehicles;
+
     private final Image[] signImg = new Image[96];
     private final int[] signX = new int[96];
     private final int[] signY = new int[96];
@@ -69,6 +75,10 @@ public class World {
     }
 
     public boolean solidAt(int px, int py) {
+        return solidTerrain(px, py) || (vehicles != null && vehicles.hit(px, py));
+    }
+
+    public boolean solidTerrain(int px, int py) {
         if (px < 0 || py < 0 || px >= MW * TS || py >= MH * TS) return true;
         return solidT[map[(py / TS) * MW + (px / TS)] & 0xFF];
     }
@@ -293,6 +303,17 @@ public class World {
                 int m = (y - y0) % 12;
                 boolean stall = (m < 5 || m >= 7) && (x % 3 == 0);
                 set(x, y, stall ? PARK_LINE : PARKING);
+            }
+        }
+        // remember each bay so vehicles can be parked in them
+        for (int y = y0; y + 4 <= y1; y++) {
+            int m = (y - y0) % 12;
+            if (m != 0 && m != 7) continue;
+            for (int x = x0; x + 2 <= x1; x++) {
+                if (x % 3 != 0 || stallCount >= stallX.length) continue;
+                stallX[stallCount] = x * TS + 24;
+                stallY[stallCount] = y * TS + 40;
+                stallCount++;
             }
         }
     }

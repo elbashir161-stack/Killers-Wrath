@@ -43,7 +43,7 @@ public class Player {
 
     private void move(int dx, int dy, int steps, World w) {
         for (int i = 0; i < steps; i++) {
-            if (free(x + dx, y + dy, w)) {
+            if (freeAt(x + dx, y + dy, w)) {
                 x += dx;
                 y += dy;
             } else {
@@ -53,7 +53,7 @@ public class Player {
     }
 
     /** Feet hitbox: 8 wide, 5 tall. */
-    private boolean free(int nx, int ny, World w) {
+    public boolean freeAt(int nx, int ny, World w) {
         return !w.solidAt(nx - 4, ny - 5) && !w.solidAt(nx + 3, ny - 5)
                 && !w.solidAt(nx - 4, ny - 1) && !w.solidAt(nx + 3, ny - 1);
     }

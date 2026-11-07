@@ -93,6 +93,17 @@ public class NpcManager {
         return best;
     }
 
+    /** True if a pedestrian stands at this point (used so vehicles stop instead of driving through people). */
+    public boolean blocksPoint(int px, int py) {
+        for (int i = 0; i < npcs.length; i++) {
+            Npc n = npcs[i];
+            if (n.state == Npc.INSIDE) continue;
+            int dx = px - n.x, dy = py - n.y;
+            if (dx > -6 && dx < 6 && dy > -12 && dy < 1) return true;
+        }
+        return false;
+    }
+
     public void drawNpcs(Graphics g, int camX, int camY, int sw, int sh, int py, boolean below) {
         for (int i = 0; i < npcs.length; i++) {
             Npc n = npcs[i];
