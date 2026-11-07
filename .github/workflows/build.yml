@@ -1,0 +1,28 @@
+name: Build JAR
+on: [push, workflow_dispatch]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '8'
+      - name: Download MIDP/CLDC API stubs
+        run: |
+          mkdir libs
+          B=https://repo1.maven.org/maven2/org/microemu
+          curl -fL -o libs/cldc.jar $B/microemu-cldc/2.0.4/microemu-cldc-2.0.4.jar
+          curl -fL -o libs/midp.jar $B/microemu-midp/2.0.4/microemu-midp-2.0.4.jar
+      - name: Compile
+        run: |
+          mkdir -p build/classes
+          javac -source 1.7 -target 1.7 -classpath libs/cldc.jar:libs/midp.jar -d build/classes *.java
+      - name: Package
+        run: jar cfm KillersWrath.jar MANIFEST.MF -C build/classes .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: KillersWrath
+          path: KillersWrath.jar
+          
