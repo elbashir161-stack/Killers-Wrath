@@ -315,7 +315,7 @@ public class Npc {
 
     public void draw(Graphics g, int camX, int camY) {
         if (state == INSIDE) return;
-        g.drawImage(NpcSprites.looks[look][dir][frame], x - 8 - camX, y - 23 - camY,
+        g.drawImage(NpcSprites.looks[look][dir][frame], x - NpcSprites.W / 2 - camX, y - 28 - camY,
                 Graphics.TOP | Graphics.LEFT);
     }
 
@@ -325,7 +325,7 @@ public class Npc {
         int w = f.stringWidth(bubble) + 6;
         int h = f.getHeight() + 2;
         int bx = sx - w / 2;
-        int by = sy - 26 - h;
+        int by = sy - 32 - h;
         g.setColor(0xFFFFFF);
         g.fillRoundRect(bx, by, w, h, 6, 6);
         g.setColor(0x000000);
