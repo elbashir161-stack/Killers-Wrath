@@ -13,9 +13,10 @@ public class World {
             ROAD_VW = 6, ROAD_HW = 7, ZEBRA_V = 8, ZEBRA_H = 9, PARKING = 10, PARK_LINE = 11,
             PLAZA = 12, WATER = 13, FIELD = 14, TRACK = 15, TARMAC = 16, RUNWAY = 17, TREE = 18,
             ISLAND = 19, RUNWAY_MARK = 20;
-    private static final int B0 = 24, PARTS = 14, STYLES = 12;
+    private static final int B0 = 24, PARTS = 21, STYLES = 12;
     private static final int P_TL = 0, P_T = 1, P_TR = 2, P_L = 3, P_C = 4, P_R = 5, P_BL = 6, P_B = 7,
-            P_BR = 8, P_VENT = 9, P_WIN = 10, P_DOOR = 11, P_GLASS = 12, P_WALL = 13;
+            P_BR = 8, P_VENT = 9, P_WIN = 10, P_DLT = 11, P_GLASS = 12, P_WALL = 13, P_DLM = 14,
+            P_DLB = 15, P_DRT = 16, P_DRM = 17, P_DRB = 18, P_WINM = 19, P_WALLM = 20;
 
     private static final int[] ROOF = {0xA8442F, 0x4F6B8A, 0x8A6A45, 0x777E86, 0x4C8A55, 0xD7E3EE,
             0xB8A98A, 0x3C4A5C, 0x9AA1A8, 0xE07A20, 0x3A3A40, 0xC9A227};
@@ -28,20 +29,24 @@ public class World {
     private static final int[] HY = {27, 93, 165, 237, 310};
     private static final int[] HW = {8, 12, 9, 9, 16};
 
-    private final byte[] map = new byte[MW * MH];
-    private final boolean[] solidT = new boolean[256];
-    private final Image[] tiles = new Image[256];
-    private final Image[] crowns = new Image[3];
+    private final short[] map = new short[MW * MH];
+    private final boolean[] solidT = new boolean[1024];
+    private final Image[] tiles = new Image[1024];
+    private final Image[] trees = new Image[4];
+    public final int[] treeBuf = new int[700];
 
     public final int[] doorX = new int[MAXDOORS];
     public final int[] doorY = new int[MAXDOORS];
+    private final int[] pathCol = new int[MAXDOORS];
+    private final int[] pathRow = new int[MAXDOORS];
     public int doorCount = 0;
 
-    // car-park bays (centres in px) and the vehicle system
+    // car-park bays (centres in px) and the vehicle / people systems
     public final int[] stallX = new int[8192];
     public final int[] stallY = new int[8192];
     public int stallCount = 0;
     public VehicleManager vehicles;
+    public NpcManager npcs;
 
     private final Image[] signImg = new Image[96];
     private final int[] signX = new int[96];
@@ -53,13 +58,12 @@ public class World {
 
     public World() {
         makeTiles();
-        crowns[0] = TreeArt.crown(56, 0);
-        crowns[1] = TreeArt.crown(64, 3);
-        crowns[2] = TreeArt.crown(72, 6);
-        for (int i = 0; i < 256; i++) solidT[i] = (i >= B0);
+        for (int i = 0; i < 4; i++) trees[i] = TreeArt.tree(i);
+        for (int i = 0; i < 1024; i++) solidT[i] = (i >= B0);
         solidT[WATER] = true;
         solidT[TREE] = true;
         solidT[ISLAND] = true;
+        for (int i = 0; i < B0; i++) if (i != WATER && i != TREE && i != ISLAND) solidT[i] = false;
         generate();
     }
 
@@ -67,20 +71,21 @@ public class World {
 
     public int tileAt(int tx, int ty) {
         if (tx < 0 || ty < 0 || tx >= MW || ty >= MH) return -1;
-        return map[ty * MW + tx] & 0xFF;
+        return map[ty * MW + tx];
     }
 
     public boolean isSidewalk(int tx, int ty) {
         return tileAt(tx, ty) == SIDEWALK;
     }
 
+    /** Solid for people on foot: terrain plus parked vehicles. */
     public boolean solidAt(int px, int py) {
-        return solidTerrain(px, py) || (vehicles != null && vehicles.hit(px, py));
+        return solidTerrain(px, py) || (vehicles != null && vehicles.hitParked(px, py));
     }
 
     public boolean solidTerrain(int px, int py) {
         if (px < 0 || py < 0 || px >= MW * TS || py >= MH * TS) return true;
-        return solidT[map[(py / TS) * MW + (px / TS)] & 0xFF];
+        return solidT[map[(py / TS) * MW + (px / TS)]];
     }
 
     // ===================== drawing =====================
@@ -92,7 +97,7 @@ public class World {
             if (ty < 0 || ty >= MH) continue;
             for (int tx = tx0; tx <= tx1; tx++) {
                 if (tx < 0 || tx >= MW) continue;
-                g.drawImage(tiles[map[ty * MW + tx] & 0xFF], tx * TS - camX, ty * TS - camY,
+                g.drawImage(tiles[map[ty * MW + tx]], tx * TS - camX, ty * TS - camY,
                         Graphics.TOP | Graphics.LEFT);
             }
         }
@@ -103,20 +108,31 @@ public class World {
         }
     }
 
-    /** Tree crowns are drawn over characters, so people walk under the leaves. */
-    public void drawCrowns(Graphics g, int camX, int camY, int sw, int sh) {
+    /** Fills treeBuf with the trees that can be seen; returns how many. Each entry is ty * MW + tx. */
+    public int collectTrees(int camX, int camY, int sw, int sh) {
+        int n = 0;
         int tx0 = camX / TS - 4, tx1 = (camX + sw) / TS + 4;
-        int ty0 = camY / TS - 3, ty1 = (camY + sh) / TS + 4;
+        int ty0 = camY / TS - 1, ty1 = (camY + sh) / TS + 8;
         for (int ty = ty0; ty <= ty1; ty++) {
             if (ty < 0 || ty >= MH) continue;
             for (int tx = tx0; tx <= tx1; tx++) {
                 if (tx < 0 || tx >= MW) continue;
-                if ((map[ty * MW + tx] & 0xFF) != TREE) continue;
-                Image im = crowns[(tx * 31 + ty * 17) % 3];
-                g.drawImage(im, tx * TS + 8 - im.getWidth() / 2 - camX,
-                        ty * TS + 22 - im.getHeight() - camY, Graphics.TOP | Graphics.LEFT);
+                if (map[ty * MW + tx] == TREE && n < treeBuf.length) treeBuf[n++] = ty * MW + tx;
             }
         }
+        return n;
+    }
+
+    public int treeBaseY(int idx) {
+        return (idx / MW) * TS + 13;
+    }
+
+    public void drawTree(Graphics g, int idx, int camX, int camY) {
+        int tx = idx % MW, ty = idx / MW;
+        int h = ((tx * 31 + ty * 17) & 0x7FFF) % 20;
+        Image im = trees[(h < 7) ? 0 : (h < 12) ? 1 : (h < 17) ? 2 : 3];
+        g.drawImage(im, tx * TS + 8 - im.getWidth() / 2 - camX, ty * TS + 13 - im.getHeight() - camY,
+                Graphics.TOP | Graphics.LEFT);
     }
 
     public Image buildMinimap() {
@@ -124,7 +140,7 @@ public class World {
         int[] px = new int[w * h];
         for (int y = 0; y < h; y++) {
             for (int x = 0; x < w; x++) {
-                int t = map[(y * 8 + 4) * MW + x * 8 + 4] & 0xFF;
+                int t = map[(y * 8 + 4) * MW + x * 8 + 4];
                 int c;
                 if (t >= B0) c = 0xC8B890;
                 else if (t == WATER) c = 0x2060C0;
@@ -153,12 +169,12 @@ public class World {
     private static int vtop(int i) { return i >= 5 ? hlo(1) : 0; }
 
     private void set(int tx, int ty, int t) {
-        if (tx >= 0 && ty >= 0 && tx < MW && ty < MH) map[ty * MW + tx] = (byte) t;
+        if (tx >= 0 && ty >= 0 && tx < MW && ty < MH) map[ty * MW + tx] = (short) t;
     }
 
     private int get(int tx, int ty) {
         if (tx < 0 || ty < 0 || tx >= MW || ty >= MH) return -1;
-        return map[ty * MW + tx] & 0xFF;
+        return map[ty * MW + tx];
     }
 
     private void fill(int x0, int y0, int x1, int y1, int t) {
@@ -184,8 +200,7 @@ public class World {
         for (int r = 0; r < 6; r++)
             for (int c = 0; c < 8; c++) block(c, r);
         roads();
-        disc(VX[1], HY[2], 4, ISLAND);
-        disc(VX[4], HY[1], 4, ISLAND);
+        extendPaths();
         addSign("To Highway", 320 * TS, (hhi(4) + 6) * TS, 0x1E7A3A);
     }
 
@@ -213,39 +228,39 @@ public class World {
             case 21: landmark(x0, y0, x1, y1, 100, 24, 8, 3, "MALL", 20); break;
             case 22:
                 residential(x0, y0, x1, y0 + 23);
-                landmark(x0, y0 + 24, x1, y1, 40, 14, 0, 1, "MARKET", 8);
+                landmark(x0, y0 + 24, x1, y1, 40, 14, 0, 3, "MARKET", 8);
                 break;
             case 23: downtown(x0, y0, x1, y1); break;
             case 24: downtown(x0, y0, x1, y1); break;
-            case 25: landmark(x0, y0, x1, y1, 40, 14, 1, 2, "POLICE", 16); break;
+            case 25: landmark(x0, y0, x1, y1, 40, 14, 1, 3, "POLICE", 16); break;
             case 26: residential(x0, y0, x1, y1); break;
             case 31: school(x0, y0, x1, y1); break;
             case 32:
                 residential(x0, y0, x1, y0 + 23);
-                landmark(x0, y0 + 24, x1, y1, 30, 12, 1, 2, "CLOTHES", 8);
+                landmark(x0, y0 + 24, x1, y1, 30, 12, 1, 3, "CLOTHES", 8);
                 break;
             case 33: {
                 int mid = (x0 + x1) / 2;
-                landmark(x0, y0, mid - 1, y1, 26, 12, 9, 2, "FOOD", 14);
-                landmark(mid, y0, x1, y1, 26, 12, 4, 2, "FRUITS", 14);
+                landmark(x0, y0, mid - 1, y1, 26, 12, 9, 3, "FOOD", 14);
+                landmark(mid, y0, x1, y1, 26, 12, 4, 3, "FRUITS", 14);
                 break;
             }
-            case 34: landmark(x0, y0, x1, y1, 38, 14, 0, 2, "FIRE STATION", 14); break;
-            case 35: landmark(x0, y0, x1, y1, 30, 14, 6, 2, "BANK", 14); break;
+            case 34: landmark(x0, y0, x1, y1, 38, 14, 0, 3, "FIRE STATION", 14); break;
+            case 35: landmark(x0, y0, x1, y1, 30, 14, 6, 3, "BANK", 14); break;
             case 36: landmark(x0, y0, x1, y1, 34, 24, 7, 3, "HOTEL", 10); break;
             case 41:
                 residential(x0, y0, x0 + 59, y1);
-                landmark(x0 + 60, y0, x1, y1, 36, 12, 10, 1, "WEAPONS", 10);
+                landmark(x0 + 60, y0, x1, y1, 36, 12, 10, 3, "WEAPONS", 10);
                 break;
             case 42:
                 residential(x0, y0, x1, y0 + 23);
-                landmark(x0, y0 + 24, x1, y1, 22, 10, 0, 1, "SHOP", 8);
+                landmark(x0, y0 + 24, x1, y1, 22, 10, 0, 3, "SHOP", 8);
                 break;
             case 43: residential(x0, y0, x1, y1); break;
             case 44: residential(x0, y0, x1, y1); break;
             case 45:
                 residential(x0, y0, x1, y0 + 23);
-                landmark(x0, y0 + 24, x1, y1, 22, 14, 11, 2, null, 6);
+                landmark(x0, y0 + 24, x1, y1, 22, 14, 11, 3, null, 6);
                 break;
             case 46: gas(x0, y0, x1, y1); break;
             default: forest(x0, y0, x1, y1); break;
@@ -268,7 +283,7 @@ public class World {
     }
 
     private void forest(int x0, int y0, int x1, int y1) {
-        sprinkle(x0, y0, x1, y1, 4, 78);
+        sprinkle(x0, y0, x1, y1, 6, 60);
     }
 
     private boolean dry(int x, int y, int w, int h) {
@@ -286,13 +301,13 @@ public class World {
                 int lx = x0 + c * lw, ly = y0 + r * ld;
                 int hw = 9 + rnd(5), hh = 7 + rnd(4);
                 if (hw > lw - 2) hw = lw - 2;
-                if (hh > ld - 9) hh = ld - 9;
+                if (hh > ld - 11) hh = ld - 11;
                 if (hh < 4) hh = 4;
                 int hx = lx + (lw - hw) / 2, hy = ly + 2 + rnd(3);
-                if (rnd(100) < 85 && dry(hx, hy, hw, hh + 1)) {
-                    building(hx, hy, hw, hh, rnd(5), 1, null, true);
+                if (rnd(100) < 85 && dry(hx, hy, hw, hh + 3)) {
+                    building(hx, hy, hw, hh, rnd(5), 3, null, true);
                 }
-                sprinkle(lx, ly, lx + lw - 1, ly + ld - 1, 6, 35);
+                sprinkle(lx, ly, lx + lw - 1, ly + ld - 1, 7, 35);
             }
         }
     }
@@ -321,6 +336,7 @@ public class World {
     /** One main building near the top of the block, a plaza and car park in front. */
     private void landmark(int x0, int y0, int x1, int y1, int w, int h, int style, int fac,
                           String label, int lotRows) {
+        if (fac < 3) fac = 3;
         int bw = x1 - x0 + 1, bh = y1 - y0 + 1;
         if (w > bw - 6) w = bw - 6;
         int avail = bh - 3 - fac - 1 - 6 - lotRows;
@@ -331,8 +347,8 @@ public class World {
         int ly = by + h + fac;
         fill(x0 + 2, ly, x1 - 2, Math.min(ly + 4, y1), PLAZA);
         if (ly + 6 < y1 - 3) parking(x0 + 4, ly + 6, x1 - 4, y1 - 3);
-        sprinkle(x0, y0, bx - 2, y1, 5, 55);
-        sprinkle(bx + w + 2, y0, x1, y1, 5, 55);
+        sprinkle(x0, y0, bx - 2, y1, 6, 55);
+        sprinkle(bx + w + 2, y0, x1, y1, 6, 55);
         lbx = bx; lby = by; lbw = w; lbh = h;
     }
 
@@ -340,15 +356,15 @@ public class World {
         int bw = x1 - x0 + 1;
         int w = 70;
         int bx = x0 + (bw - w) / 2, by = y0 + 3;
-        building(bx, by, w, 14, 2, 2, "SCHOOL", true);
-        int ly = by + 16;
+        building(bx, by, w, 14, 2, 3, "SCHOOL", true);
+        int ly = by + 17;
         fill(x0 + 2, ly, x1 - 2, ly + 4, PLAZA);
         int fx = x0 + 10, fy = ly + 9;
         fill(fx - 3, fy - 3, fx + 53, fy + 29, TRACK);
         fill(fx, fy, fx + 50, fy + 26, FIELD);
-        sprinkle(x0, y0, bx - 2, y1, 5, 55);
-        sprinkle(bx + w + 2, y0, x1, y1, 5, 45);
-        sprinkle(fx + 60, ly + 6, x1, y1, 5, 45);
+        sprinkle(x0, y0, bx - 2, y1, 6, 55);
+        sprinkle(bx + w + 2, y0, x1, y1, 6, 45);
+        sprinkle(fx + 60, ly + 6, x1, y1, 6, 45);
     }
 
     private void park(int x0, int y0, int x1, int y1) {
@@ -357,7 +373,7 @@ public class World {
         fill(cx - 1, y0, cx + 1, y1, PATH);
         disc(cx, cy, 9, PLAZA);
         disc(cx, cy, 3, WATER);
-        sprinkle(x0, y0, x1, y1, 5, 65);
+        sprinkle(x0, y0, x1, y1, 6, 50);
     }
 
     private void downtown(int x0, int y0, int x1, int y1) {
@@ -379,9 +395,9 @@ public class World {
     private void gas(int x0, int y0, int x1, int y1) {
         fill(x0, y0, x1, y1, PARKING);
         int bw = x1 - x0 + 1;
-        building(x0 + (bw - 12) / 2, y0 + 3, 12, 6, 3, 1, "GAS", true);
-        building(x0 + (bw - 26) / 2, y0 + 20, 26, 7, 0, 0, null, false);
-        sprinkle(x0, y0 + 32, x1, y1, 5, 30);
+        building(x0 + (bw - 12) / 2, y0 + 3, 12, 6, 3, 3, "GAS", true);
+        building(x0 + (bw - 26) / 2, y0 + 22, 26, 7, 0, 0, null, false);
+        sprinkle(x0, y0 + 34, x1, y1, 6, 30);
     }
 
     private void airport(int x0, int y0, int x1, int y1) {
@@ -396,7 +412,12 @@ public class World {
 
     // ---------------- buildings ----------------
 
+    /**
+     * Roof (w x h tiles) plus a south wall of 'fac' rows. A building with a door gets a double door
+     * 2 tiles wide and 3 tiles tall (about 2.3 m, taller than a person).
+     */
     private void building(int x, int y, int w, int h, int style, int fac, String label, boolean door) {
+        if (door && fac < 3) fac = 3;
         for (int j = 0; j < h; j++) {
             for (int i = 0; i < w; i++) {
                 boolean t = (j == 0), b = (j == h - 1), l = (i == 0), r = (i == w - 1);
@@ -414,24 +435,49 @@ public class World {
             }
         }
         boolean glass = (style == 5 || style == 7 || style == 8);
-        int doorCol = x + w / 2;
+        int doorCol = x + w / 2 - 1;
         for (int k = 0; k < fac; k++) {
+            boolean winRow = (fac >= 4) || k == 1;
             for (int i = 0; i < w; i++) {
-                int part = glass ? P_GLASS : (((x + i) % 2 == 0) ? P_WIN : P_WALL);
-                if (door && k == fac - 1 && x + i == doorCol) part = P_DOOR;
+                int part;
+                if (glass) part = P_GLASS;
+                else if (k == 0) part = (winRow && (x + i) % 2 == 0) ? P_WIN : P_WALL;
+                else part = (winRow && (x + i) % 2 == 0) ? P_WINM : P_WALLM;
+                if (door) {
+                    int row = k - (fac - 3);
+                    if (row >= 0 && x + i == doorCol) part = (row == 0) ? P_DLT : (row == 1 ? P_DLM : P_DLB);
+                    if (row >= 0 && x + i == doorCol + 1) part = (row == 0) ? P_DRT : (row == 1 ? P_DRM : P_DRB);
+                }
                 set(x + i, y + h + k, B0 + style * PARTS + part);
             }
         }
-        if (door && fac > 0) {
+        if (door && fac > 0 && doorCount < MAXDOORS) {
             int ar = y + h + fac;
-            for (int k = 0; k < 4; k++) if (get(doorCol, ar + k) == GRASS) set(doorCol, ar + k, PATH);
-            if (doorCount < MAXDOORS) {
-                doorX[doorCount] = doorCol * TS + 8;
-                doorY[doorCount] = ar * TS + 8;
-                doorCount++;
+            doorX[doorCount] = (doorCol + 1) * TS;       // middle of the double door
+            doorY[doorCount] = ar * TS + 8;
+            pathCol[doorCount] = doorCol;
+            pathRow[doorCount] = ar;
+            doorCount++;
+        }
+        if (label != null && fac > 0) addSign(label, (x + w / 2) * TS + 8, (y + h) * TS - 6, 0);
+    }
+
+    /** Lay a 2-tile-wide paved walkway from every door down to the pavement or road. */
+    private void extendPaths() {
+        for (int i = 0; i < doorCount; i++) {
+            int col = pathCol[i], r0 = pathRow[i];
+            for (int dy = 0; dy < 80; dy++) {
+                int y = r0 + dy;
+                boolean stop = false;
+                for (int c = col; c <= col + 1; c++) {
+                    int t = get(c, y);
+                    if (t == SIDEWALK || (t >= ROAD && t <= ZEBRA_H) || t == -1) stop = true;
+                    else if (t == GRASS || t == TREE || t == PATH) set(c, y, PATH);
+                    else stop = true;
+                }
+                if (stop) break;
             }
         }
-        if (label != null && fac > 0) addSign(label, (x + w / 2) * TS + 8, (y + h) * TS + 8, 0);
     }
 
     private void addSign(String text, int cx, int cy, int bg) {
@@ -462,12 +508,6 @@ public class World {
     }
 
     // ---------------- roads ----------------
-
-    private boolean inVertRoad(int tx, int ty) {
-        for (int i = 0; i < 7; i++)
-            if (tx >= vlo(i) && tx <= vhi(i) && ty >= vtop(i) && ty < hlo(4)) return true;
-        return false;
-    }
 
     private void roads() {
         int bottom = hlo(4) - 1;
@@ -545,8 +585,8 @@ public class World {
 
     private void makeTiles() {
         tiles[GRASS] = grass();
-        tiles[PATH] = flat(0xC8B890, 0xB5A57C);
-        tiles[SIDEWALK] = sidewalk();
+        tiles[PATH] = paved(0xD2CBB9, 0xBDB6A3);
+        tiles[SIDEWALK] = paved(0xBDB8AC, 0xA9A498);
         tiles[ROAD] = road(0);
         tiles[ROAD_VY] = road(1);
         tiles[ROAD_HY] = road(2);
@@ -563,17 +603,15 @@ public class World {
         tiles[TARMAC] = flat(0x55555C, 0x4C4C53);
         tiles[RUNWAY] = flat(0x2E2E33, 0x35353A);
         tiles[RUNWAY_MARK] = runwayMark();
-        tiles[TREE] = trunk();
-        tiles[ISLAND] = island();
+        tiles[TREE] = grass();      // the tree itself is a big sprite, see drawTree
+        tiles[ISLAND] = grass();
         for (int s = 0; s < STYLES; s++) {
-            for (int p = 0; p <= P_BR; p++) tiles[B0 + s * PARTS + p] = roof(s, p);
-            tiles[B0 + s * PARTS + P_VENT] = roof(s, P_VENT);
-            tiles[B0 + s * PARTS + P_WIN] = facade(s, P_WIN);
-            tiles[B0 + s * PARTS + P_DOOR] = facade(s, P_DOOR);
-            tiles[B0 + s * PARTS + P_GLASS] = facade(s, P_GLASS);
-            tiles[B0 + s * PARTS + P_WALL] = facade(s, P_WALL);
+            for (int p = 0; p < PARTS; p++) {
+                if (p <= P_BR || p == P_VENT) tiles[B0 + s * PARTS + p] = roof(s, p);
+                else tiles[B0 + s * PARTS + p] = facade(s, p);
+            }
         }
-        for (int i = 0; i < 256; i++) if (tiles[i] == null) tiles[i] = tiles[GRASS];
+        for (int i = 0; i < 1024; i++) if (tiles[i] == null) tiles[i] = tiles[GRASS];
     }
 
     private Image grass() {
@@ -596,11 +634,11 @@ public class World {
         return im;
     }
 
-    private Image sidewalk() {
+    private Image paved(int a, int b) {
         Image im = tile();
         Graphics g = im.getGraphics();
-        col(g, 0xBDB8AC); g.fillRect(0, 0, TS, TS);
-        col(g, 0xA9A498);
+        col(g, a); g.fillRect(0, 0, TS, TS);
+        col(g, b);
         g.fillRect(TS - 1, 0, 1, TS); g.fillRect(0, TS - 1, TS, 1);
         return im;
     }
@@ -655,22 +693,6 @@ public class World {
         return im;
     }
 
-    private Image trunk() {
-        Image im = grass();
-        Graphics g = im.getGraphics();
-        col(g, 0x2F7A2E); g.fillArc(2, 9, 12, 6, 0, 360);
-        col(g, 0x6B4A2B); g.fillRect(6, 4, 4, 9);
-        col(g, 0x4E341C); g.fillRect(9, 4, 1, 9);
-        return im;
-    }
-
-    private Image island() {
-        Image im = grass();
-        Graphics g = im.getGraphics();
-        col(g, 0xAAAAAA); g.drawRect(0, 0, TS - 1, TS - 1);
-        return im;
-    }
-
     private Image roof(int style, int part) {
         Image im = tile();
         Graphics g = im.getGraphics();
@@ -702,26 +724,54 @@ public class World {
         Graphics g = im.getGraphics();
         int wall = WALL[style];
         col(g, wall); g.fillRect(0, 0, TS, TS);
+        boolean eave = (part == P_WIN || part == P_WALL || part == P_GLASS || part == P_DLT || part == P_DRT);
         if (part == P_GLASS) {
             col(g, SpriteKit.adj(wall, 82));
             g.fillRect(0, 7, TS, 1); g.fillRect(7, 0, 1, TS);
             col(g, SpriteKit.adj(wall, 130));
             g.fillRect(2, 2, 3, 1); g.fillRect(10, 9, 3, 1);
         }
-        col(g, SpriteKit.adj(ROOF[style], 70));
-        g.fillRect(0, 0, TS, 2);
-        if (part == P_WIN) {
-            col(g, 0x3C3C44); g.fillRect(4, 5, 8, 8);
-            col(g, 0x8FC4E8); g.fillRect(5, 6, 6, 6);
-            col(g, 0xD6EEFA); g.fillRect(5, 6, 2, 1);
-            col(g, 0x3C3C44); g.fillRect(8, 6, 1, 6);
-        } else if (part == P_DOOR) {
-            col(g, 0x5B3A22); g.fillRect(4, 3, 8, 13);
-            col(g, 0x6E4A2E); g.fillRect(5, 4, 6, 11);
-            col(g, 0xE0C050); g.fillRect(9, 9, 1, 2);
-        } else if (part == P_WALL) {
-            col(g, SpriteKit.adj(wall, 90)); g.fillRect(0, 15, TS, 1);
+        if (eave) {
+            col(g, SpriteKit.adj(ROOF[style], 70));
+            g.fillRect(0, 0, TS, 2);
+        }
+        if (part == P_WIN || part == P_WINM) {
+            col(g, 0x3C3C44); g.fillRect(4, 4, 8, 8);
+            col(g, 0x8FC4E8); g.fillRect(5, 5, 6, 6);
+            col(g, 0xD6EEFA); g.fillRect(5, 5, 2, 1);
+            col(g, 0x3C3C44); g.fillRect(8, 5, 1, 6);
+        } else if (part == P_WALLM || part == P_WALL) {
+            col(g, SpriteKit.adj(wall, 92)); g.fillRect(0, 15, TS, 1);
+        } else if (part >= P_DLT && part != P_GLASS && part != P_WALL && part != P_WINM && part != P_WALLM) {
+            doorArt(g, part);
         }
         return im;
+    }
+
+    /** Double door made of 6 tiles (left/right x top/middle/bottom): 2 tiles wide, about 38 px tall. */
+    private void doorArt(Graphics g, int part) {
+        boolean left = (part == P_DLT || part == P_DLM || part == P_DLB);
+        boolean top = (part == P_DLT || part == P_DRT);
+        boolean bot = (part == P_DLB || part == P_DRB);
+        int x0 = left ? 3 : 0, x1 = left ? 15 : 12;
+        int y0 = top ? 8 : 0, y1 = bot ? 13 : 15;
+        col(g, 0x2E1D10);
+        g.fillRect(x0, y0, x1 - x0 + 1, y1 - y0 + 1);                 // frame
+        int lx0 = left ? x0 + 1 : x0, lx1 = left ? x1 : x1 - 1;
+        int ly0 = top ? y0 + 1 : y0;
+        col(g, 0x5B3A22);
+        g.fillRect(lx0, ly0, lx1 - lx0 + 1, y1 - ly0 + 1);            // leaf
+        col(g, 0x6E4A2E);
+        g.fillRect(lx0 + 2, top ? y0 + 3 : y0 + 2, lx1 - lx0 - 3, y1 - (top ? y0 + 3 : y0 + 2) - 1); // panel
+        col(g, 0x2E1D10);
+        if (left) g.fillRect(15, ly0, 1, y1 - ly0 + 1); else g.fillRect(0, ly0, 1, y1 - ly0 + 1);   // gap between leaves
+        if (!top && !bot) {
+            col(g, 0xE0C050);
+            if (left) g.fillRect(12, 6, 2, 4); else g.fillRect(2, 6, 2, 4);                        // handles
+        }
+        if (bot) {
+            col(g, 0x9A9484);
+            g.fillRect(0, 14, TS, 2);                                                               // step
+        }
     }
 }

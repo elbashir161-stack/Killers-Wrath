@@ -1,121 +1,110 @@
 import javax.microedition.lcdui.game.GameCanvas;
 
-/** One car or motorcycle. x,y is its centre in world pixels; speed is in 1/16 px per tick. */
+/**
+ * One car or motorcycle. x,y = centre in world pixels, h = heading 0..15 (0 east, 4 south, 8 west, 12 north),
+ * sp = speed in 1/16 px per tick (negative = reversing).
+ * Controls: UP gas, DOWN brake then reverse, LEFT/RIGHT steer (only while moving).
+ */
 public class Vehicle {
-    public int type, color, dir, x, y, sp;
-    public boolean driven;
-    private int frac;
+    public static final int HRIGHT = 0, HDOWN = 4, HLEFT = 8, HUP = 12;
 
-    public Vehicle(int type, int color, int dir, int x, int y) {
+    public int type, color, h, x, y, sp;
+    public boolean driven;
+    private int accX, accY, steerT;
+
+    public Vehicle(int type, int color, int h, int x, int y) {
         this.type = type;
         this.color = color;
-        this.dir = dir;
+        this.h = h;
         this.x = x;
         this.y = y;
     }
 
-    public int hx() { return ((dir >= 2) ? VehicleKit.LEN[type] : VehicleKit.WID[type]) / 2; }
-    public int hy() { return ((dir >= 2) ? VehicleKit.WID[type] : VehicleKit.LEN[type]) / 2; }
+    public int len() { return VehicleKit.LEN[type]; }
+    public int wid() { return VehicleKit.WID[type]; }
+
+    /** Half-size of the bounding box around the rotated body. */
+    public int extX() { return (len() * abs(VehicleKit.COS[h]) + wid() * abs(VehicleKit.SIN[h])) / 512; }
+    public int extY() { return (len() * abs(VehicleKit.SIN[h]) + wid() * abs(VehicleKit.COS[h])) / 512; }
+
+    private static int abs(int v) { return v < 0 ? -v : v; }
 
     public boolean contains(int px, int py) {
         int dx = px - x, dy = py - y;
-        return dx > -hx() && dx < hx() && dy > -hy() && dy < hy();
+        if (dx > 48 || dx < -48 || dy > 48 || dy < -48) return false;
+        int c = VehicleKit.COS[h], s = VehicleKit.SIN[h];
+        int u = (dx * c + dy * s) / 256;
+        int v = (-dx * s + dy * c) / 256;
+        return u > -len() / 2 && u < len() / 2 && v > -wid() / 2 && v < wid() / 2;
     }
 
-    /** Arrow keys steer: the direction pressed becomes the heading; the opposite one brakes, then reverses. */
-    public void drive(int keys, World w, VehicleManager vm, NpcManager npcs) {
-        int h = 0, v = 0;
-        if ((keys & GameCanvas.LEFT_PRESSED) != 0) h = -1;
-        if ((keys & GameCanvas.RIGHT_PRESSED) != 0) h = 1;
-        if ((keys & GameCanvas.UP_PRESSED) != 0) v = -1;
-        if ((keys & GameCanvas.DOWN_PRESSED) != 0) v = 1;
-        int want = -1;
-        boolean horiz = dir >= 2;
-        if (h != 0 && v != 0) want = horiz ? (v < 0 ? Sprites.UP : Sprites.DOWN) : (h < 0 ? Sprites.LEFT : Sprites.RIGHT);
-        else if (h != 0) want = (h < 0) ? Sprites.LEFT : Sprites.RIGHT;
-        else if (v != 0) want = (v < 0) ? Sprites.UP : Sprites.DOWN;
-
+    public void drive(int keys, World w, VehicleManager vm) {
+        boolean up = (keys & GameCanvas.UP_PRESSED) != 0;
+        boolean down = (keys & GameCanvas.DOWN_PRESSED) != 0;
+        boolean left = (keys & GameCanvas.LEFT_PRESSED) != 0;
+        boolean right = (keys & GameCanvas.RIGHT_PRESSED) != 0;
         int max = VehicleKit.MAXSP[type] * 16;
-        if (want < 0) {
-            sp -= 3;
-            if (sp < 0) sp = 0;
-        } else if (want == dir) {
-            sp += VehicleKit.ACC[type];
-            if (sp > max) sp = max;
-        } else if (want == (dir ^ 1)) {
-            sp -= 14;
-            if (sp <= 0) {
-                sp = 0;
-                turn(want, w, vm, npcs);
-            }
+        int rev = 3 * 16;
+        int acc = VehicleKit.ACC[type];
+        if (up) {
+            if (sp < 0) sp += 14;
+            else { sp += acc; if (sp > max) sp = max; }
+        } else if (down) {
+            if (sp > 0) { sp -= 14; if (sp < 0) sp = 0; }
+            else { sp -= acc; if (sp < -rev) sp = -rev; }
         } else {
-            if (turn(want, w, vm, npcs)) sp = sp * 3 / 4;
+            if (sp > 0) { sp -= 3; if (sp < 0) sp = 0; }
+            else if (sp < 0) { sp += 3; if (sp > 0) sp = 0; }
         }
-        move(w, vm, npcs);
-    }
-
-    private boolean turn(int nd, World w, VehicleManager vm, NpcManager npcs) {
-        int old = dir;
-        dir = nd;
-        if (!fullFree(w, vm, npcs)) {
-            dir = old;
-            return false;
+        // steering only when rolling; reverse flips it like a real car
+        if ((left || right) && (sp >= 16 || sp <= -16)) {
+            steerT--;
+            if (steerT <= 0) {
+                steerT = (abs(sp) > 64) ? 4 : 3;
+                int d = left ? -1 : 1;
+                if (sp < 0) d = -d;
+                int nh = (h + d) & 15;
+                if (fits(x, y, nh, w, vm)) h = nh;
+            }
+        } else if (!left && !right) {
+            steerT = 0;
         }
-        return true;
+        move(w, vm);
     }
 
-    private void move(World w, VehicleManager vm, NpcManager npcs) {
-        int total = sp + frac;
-        int steps = total >> 4;
-        frac = total & 15;
-        int dx = (dir == Sprites.LEFT) ? -1 : (dir == Sprites.RIGHT ? 1 : 0);
-        int dy = (dir == Sprites.UP) ? -1 : (dir == Sprites.DOWN ? 1 : 0);
-        for (int i = 0; i < steps; i++) {
-            if (edgeFree(x + dx, y + dy, w, vm, npcs)) {
-                x += dx;
-                y += dy;
-            } else {
-                sp = 0;
-                frac = 0;
-                break;
-            }
+    private void move(World w, VehicleManager vm) {
+        accX += sp * VehicleKit.COS[h] / 256;
+        accY += sp * VehicleKit.SIN[h] / 256;
+        boolean crash = false;
+        while (accX >= 16) {
+            if (fits(x + 1, y, h, w, vm)) { x++; accX -= 16; } else { accX = 0; crash = true; }
         }
-    }
-
-    private boolean blocked(int px, int py, World w, VehicleManager vm, NpcManager npcs) {
-        return w.solidTerrain(px, py) || vm.hitOther(px, py, this) || npcs.blocksPoint(px, py);
-    }
-
-    private boolean edgeFree(int nx, int ny, World w, VehicleManager vm, NpcManager npcs) {
-        int hx = hx(), hy = hy();
-        if (dir == Sprites.RIGHT || dir == Sprites.LEFT) {
-            int px = (dir == Sprites.RIGHT) ? nx + hx - 1 : nx - hx;
-            for (int j = -hy + 1; ; j += 6) {
-                if (j > hy - 1) j = hy - 1;
-                if (blocked(px, ny + j, w, vm, npcs)) return false;
-                if (j == hy - 1) break;
-            }
-        } else {
-            int py = (dir == Sprites.DOWN) ? ny + hy - 1 : ny - hy;
-            for (int i = -hx + 1; ; i += 6) {
-                if (i > hx - 1) i = hx - 1;
-                if (blocked(nx + i, py, w, vm, npcs)) return false;
-                if (i == hx - 1) break;
-            }
+        while (accX <= -16) {
+            if (fits(x - 1, y, h, w, vm)) { x--; accX += 16; } else { accX = 0; crash = true; }
         }
-        return true;
+        while (accY >= 16) {
+            if (fits(x, y + 1, h, w, vm)) { y++; accY -= 16; } else { accY = 0; crash = true; }
+        }
+        while (accY <= -16) {
+            if (fits(x, y - 1, h, w, vm)) { y--; accY += 16; } else { accY = 0; crash = true; }
+        }
+        if (crash) sp = sp / 2;
     }
 
-    private boolean fullFree(World w, VehicleManager vm, NpcManager npcs) {
-        int hx = hx(), hy = hy();
-        for (int j = -hy + 1; ; j += 6) {
-            if (j > hy - 1) j = hy - 1;
-            for (int i = -hx + 1; ; i += 6) {
-                if (i > hx - 1) i = hx - 1;
-                if (blocked(x + i, y + j, w, vm, npcs)) return false;
-                if (i == hx - 1) break;
+    /** Is the whole body free of walls, water, trunks and other vehicles at this place and heading? */
+    private boolean fits(int nx, int ny, int nh, World w, VehicleManager vm) {
+        int hl = len() / 2 - 1, hw = wid() / 2 - 1;
+        int c = VehicleKit.COS[nh], s = VehicleKit.SIN[nh];
+        for (int u = -hl; ; u += 7) {
+            if (u > hl) u = hl;
+            for (int v = -hw; ; v += 7) {
+                if (v > hw) v = hw;
+                int px = nx + (u * c - v * s) / 256;
+                int py = ny + (u * s + v * c) / 256;
+                if (w.solidTerrain(px, py) || vm.hitOther(px, py, this)) return false;
+                if (v == hw) break;
             }
-            if (j == hy - 1) break;
+            if (u == hl) break;
         }
         return true;
     }

@@ -1,8 +1,9 @@
 import java.util.Random;
 import javax.microedition.lcdui.Font;
 import javax.microedition.lcdui.Graphics;
+import javax.microedition.lcdui.Image;
 
-/** Pedestrians live around Killer; far-away ones are recycled near him. */
+/** Pedestrians live around Killer; far-away ones are recycled near him. Also: collisions, blood, deaths. */
 public class NpcManager {
     private static final Random R = new Random();
 
@@ -15,14 +16,28 @@ public class NpcManager {
     public final int[] doorX;
     public final int[] doorY;
     public final int[] doorUse;
+    public Vehicle driven;              // the vehicle Killer is driving, or null
+    public boolean playerOnFoot = true; // people bump into Killer only when he walks
+    public int kills = 0;
+
     private final World world;
+    private final Player player;
+    private final int[] bloodX = new int[64];
+    private final int[] bloodY = new int[64];
+    private final int[] bloodS = new int[64];
+    private int bloodN = 0, bloodHead = 0;
+    private final Image[] bloodImg = new Image[3];
     private int tick = 0;
 
     public NpcManager(World w, Player k, int count) {
         world = w;
+        player = k;
         doorX = w.doorX;
         doorY = w.doorY;
         doorUse = new int[World.MAXDOORS];
+        bloodImg[0] = makeBlood(12);
+        bloodImg[1] = makeBlood(20);
+        bloodImg[2] = makeBlood(30);
         npcs = new Npc[count];
         for (int i = 0; i < count; i++) {
             int[] p = placeAround(k, 100, 560);
@@ -34,6 +49,8 @@ public class NpcManager {
             npcs[i] = new Npc(px, py, rnd(NpcSprites.LOOKS), pers);
         }
     }
+
+    // ---------------- placement ----------------
 
     /** A random sidewalk spot between minD and maxD pixels from Killer, or null. */
     private int[] placeAround(Player k, int minD, int maxD) {
@@ -53,15 +70,60 @@ public class NpcManager {
 
     public void update(World w, Player k) {
         for (int i = 0; i < npcs.length; i++) npcs[i].update(this, w, k);
-        // recycle one far-away calm pedestrian per tick next to Killer's surroundings
         tick++;
         Npc n = npcs[tick % npcs.length];
-        if (n.state == Npc.NORMAL) {
+        if (n.state == Npc.NORMAL || n.state == Npc.DEAD) {
             int dx = n.x - k.x, dy = n.y - k.y;
             if (dx * dx + dy * dy > 640 * 640) {
                 int[] p = placeAround(k, 320, 560);
                 if (p != null) n.reset(p[0], p[1]);
             }
+        }
+    }
+
+    // ---------------- people are solid ----------------
+
+    /**
+     * Would a body (8x5 feet box) at nx,ny overlap another person? Bodies already overlapping may still
+     * move apart. self == null means the mover is Killer.
+     */
+    public boolean blocks(int nx, int ny, int cx, int cy, Npc self) {
+        for (int i = 0; i < npcs.length; i++) {
+            Npc n = npcs[i];
+            if (n == self || n.state == Npc.INSIDE || n.state == Npc.DEAD) continue;
+            if (Math.abs(nx - n.x) < 8 && Math.abs(ny - n.y) < 5
+                    && !(Math.abs(cx - n.x) < 8 && Math.abs(cy - n.y) < 5)) return true;
+        }
+        if (self != null && playerOnFoot) {
+            if (Math.abs(nx - player.x) < 8 && Math.abs(ny - player.y) < 5
+                    && !(Math.abs(cx - player.x) < 8 && Math.abs(cy - player.y) < 5)) return true;
+        }
+        return false;
+    }
+
+    // ---------------- cars hit people ----------------
+
+    /** Called every tick while Killer drives: anyone the body touches at speed is hurt. */
+    public void vehicleHit(Vehicle v) {
+        int spd = v.sp < 0 ? -v.sp : v.sp;
+        if (spd < 24) return;
+        for (int i = 0; i < npcs.length; i++) {
+            Npc n = npcs[i];
+            if (n.state == Npc.DEAD || n.state == Npc.INSIDE) continue;
+            if (v.contains(n.x, n.y - 2) || v.contains(n.x, n.y - 9)) {
+                n.hurt((spd / 16) * 18, this, v.x, v.y);
+                v.sp = v.sp * 7 / 10;
+            }
+        }
+    }
+
+    /** Someone was hurt: calm neighbours nearby get alarmed. */
+    public void panicNear(int x, int y, int fx, int fy) {
+        for (int i = 0; i < npcs.length; i++) {
+            Npc n = npcs[i];
+            if ((n.state != Npc.NORMAL && n.state != Npc.STAND) || n.personality == Npc.P_BRAVE) continue;
+            int dx = n.x - x, dy = n.y - y;
+            if (dx * dx + dy * dy < 220 * 220) n.startRecognise(fx, fy, true, 4 + rnd(8));
         }
     }
 
@@ -93,25 +155,56 @@ public class NpcManager {
         return best;
     }
 
-    /** True if a pedestrian stands at this point (used so vehicles stop instead of driving through people). */
-    public boolean blocksPoint(int px, int py) {
-        for (int i = 0; i < npcs.length; i++) {
-            Npc n = npcs[i];
-            if (n.state == Npc.INSIDE) continue;
-            int dx = px - n.x, dy = py - n.y;
-            if (dx > -6 && dx < 6 && dy > -12 && dy < 1) return true;
-        }
-        return false;
+    // ---------------- blood ----------------
+
+    public void addBlood(int x, int y, int size) {
+        bloodX[bloodHead] = x;
+        bloodY[bloodHead] = y;
+        bloodS[bloodHead] = size;
+        bloodHead = (bloodHead + 1) % 64;
+        if (bloodN < 64) bloodN++;
     }
 
-    public void drawNpcs(Graphics g, int camX, int camY, int sw, int sh, int py, boolean below) {
+    private Image makeBlood(int size) {
+        int[] p = new int[size * size];
+        int sd = size * 7919;
+        int c = size / 2;
+        disc(p, size, c, c, size * 33 / 100, 0xDD7A0A0A);
+        for (int i = 0; i < 6; i++) {
+            sd = sd * 1103515245 + 12345;
+            int ox = ((sd >>> 16) & 0x7FFF) % (size * 6 / 10 + 1) - size * 3 / 10;
+            sd = sd * 1103515245 + 12345;
+            int oy = ((sd >>> 16) & 0x7FFF) % (size * 6 / 10 + 1) - size * 3 / 10;
+            disc(p, size, c + ox, c + oy, size / 9 + 1, (i % 2 == 0) ? 0xDD7A0A0A : 0xDDB01414);
+        }
+        disc(p, size, c - 1, c - 1, size / 6, 0xDDB01414);
+        return Image.createRGBImage(p, size, size, true);
+    }
+
+    private static void disc(int[] p, int size, int cx, int cy, int r, int col) {
+        for (int y = cy - r; y <= cy + r; y++)
+            for (int x = cx - r; x <= cx + r; x++) {
+                if (x < 0 || y < 0 || x >= size || y >= size) continue;
+                int dx = x - cx, dy = y - cy;
+                if (dx * dx + dy * dy <= r * r) p[y * size + x] = col;
+            }
+    }
+
+    /** Blood pools and bodies lie on the ground, under everything that stands. */
+    public void drawGround(Graphics g, int camX, int camY, int sw, int sh) {
+        for (int i = 0; i < bloodN; i++) {
+            Image im = bloodImg[bloodS[i]];
+            int sx = bloodX[i] - im.getWidth() / 2 - camX, sy = bloodY[i] - im.getHeight() / 2 - camY;
+            if (sx > sw || sy > sh || sx + im.getWidth() < 0 || sy + im.getHeight() < 0) continue;
+            g.drawImage(im, sx, sy, Graphics.TOP | Graphics.LEFT);
+        }
         for (int i = 0; i < npcs.length; i++) {
             Npc n = npcs[i];
-            if (n.state == Npc.INSIDE) continue;
-            if (below != (n.y > py)) continue;
-            int sx = n.x - camX, sy = n.y - camY;
-            if (sx < -20 || sx > sw + 20 || sy < -8 || sy > sh + 34) continue;
-            n.draw(g, camX, camY);
+            if (n.state != Npc.DEAD) continue;
+            Image im = NpcSprites.dead[n.look][(n.x + n.y) & 1];
+            int sx = n.x - im.getWidth() / 2 - camX, sy = n.y - 17 - camY;
+            if (sx > sw || sy > sh || sx + im.getWidth() < 0 || sy + im.getHeight() < 0) continue;
+            g.drawImage(im, sx, sy, Graphics.TOP | Graphics.LEFT);
         }
     }
 

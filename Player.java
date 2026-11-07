@@ -55,7 +55,8 @@ public class Player {
     /** Feet hitbox: 8 wide, 5 tall. */
     public boolean freeAt(int nx, int ny, World w) {
         return !w.solidAt(nx - 4, ny - 5) && !w.solidAt(nx + 3, ny - 5)
-                && !w.solidAt(nx - 4, ny - 1) && !w.solidAt(nx + 3, ny - 1);
+                && !w.solidAt(nx - 4, ny - 1) && !w.solidAt(nx + 3, ny - 1)
+                && (w.npcs == null || !w.npcs.blocks(nx, ny, x, y, null));
     }
 
     public void draw(Graphics g, int camX, int camY) {

@@ -13,15 +13,15 @@ public class VehicleManager {
         int n = 0;
         // starter vehicles parked along the avenue beside Killer's start
         if (count >= 4) {
-            list[n++] = new Vehicle(VehicleKit.MOTO, 0, Sprites.UP, k.x + 20, k.y + 30);
-            list[n++] = new Vehicle(VehicleKit.SEDAN, 0, Sprites.UP, k.x + 24, k.y - 80);
-            list[n++] = new Vehicle(VehicleKit.SPORTS, 1, Sprites.UP, k.x + 24, k.y + 160);
-            list[n++] = new Vehicle(VehicleKit.PICKUP, 3, Sprites.UP, k.x + 24, k.y - 200);
+            list[n++] = new Vehicle(VehicleKit.MOTO, 0, Vehicle.HUP, k.x + 20, k.y + 30);
+            list[n++] = new Vehicle(VehicleKit.SEDAN, 0, Vehicle.HUP, k.x + 24, k.y - 80);
+            list[n++] = new Vehicle(VehicleKit.SPORTS, 1, Vehicle.HUP, k.x + 24, k.y + 160);
+            list[n++] = new Vehicle(VehicleKit.PICKUP, 3, Vehicle.HUP, k.x + 24, k.y - 200);
         }
         for (int i = n; i < count; i++) {
             int r = NpcManager.rnd(100);
             int type = (r < 40) ? VehicleKit.SEDAN : (r < 60) ? VehicleKit.SPORTS : (r < 80) ? VehicleKit.PICKUP : VehicleKit.MOTO;
-            Vehicle v = new Vehicle(type, NpcManager.rnd(VehicleKit.colorCount(type)), Sprites.UP, -1000, -1000);
+            Vehicle v = new Vehicle(type, NpcManager.rnd(VehicleKit.colorCount(type)), Vehicle.HUP, -1000, -1000);
             list[i] = v;
             place(v, k, 150, 1100);
         }
@@ -51,7 +51,7 @@ public class VehicleManager {
             if (pick == 0) {
                 v.x = world.stallX[i];
                 v.y = world.stallY[i];
-                v.dir = (NpcManager.rnd(2) == 0) ? Sprites.UP : Sprites.DOWN;
+                v.h = (NpcManager.rnd(2) == 0) ? Vehicle.HUP : Vehicle.HDOWN;
                 v.sp = 0;
                 v.driven = false;
                 return true;
@@ -70,8 +70,12 @@ public class VehicleManager {
         if (dx * dx + dy * dy > 1400 * 1400) place(v, k, 450, 1100);
     }
 
-    public boolean hit(int px, int py) {
-        for (int i = 0; i < list.length; i++) if (list[i].contains(px, py)) return true;
+    /** Solid for people on foot: every vehicle that is not being driven. */
+    public boolean hitParked(int px, int py) {
+        for (int i = 0; i < list.length; i++) {
+            Vehicle v = list[i];
+            if (!v.driven && v.contains(px, py)) return true;
+        }
         return false;
     }
 
@@ -90,8 +94,8 @@ public class VehicleManager {
         for (int i = 0; i < list.length; i++) {
             Vehicle v = list[i];
             if (v.driven) continue;
-            int ex = Math.abs(px - v.x) - v.hx();
-            int ey = Math.abs(py - v.y) - v.hy();
+            int ex = Math.abs(px - v.x) - v.extX();
+            int ey = Math.abs(py - v.y) - v.extY();
             if (ex < 0) ex = 0;
             if (ey < 0) ey = 0;
             int d = ex * ex + ey * ey;
@@ -103,18 +107,10 @@ public class VehicleManager {
         return best;
     }
 
-    public void drawVehicles(Graphics g, int camX, int camY, int sw, int sh, int py, boolean below) {
-        for (int i = 0; i < list.length; i++) {
-            Vehicle v = list[i];
-            if (below != (v.y + v.hy() > py)) continue;
-            Image im = VehicleKit.image(v.type, v.color, v.dir);
-            int sx = v.x - im.getWidth() / 2 - camX, sy = v.y - im.getHeight() / 2 - camY;
-            if (sx > sw || sy > sh || sx + im.getWidth() < 0 || sy + im.getHeight() < 0) continue;
-            g.drawImage(im, sx, sy, Graphics.TOP | Graphics.LEFT);
-            if (v.driven && v.type == VehicleKit.MOTO) {
-                g.drawImage(Sprites.killer[v.dir][0], v.x - Sprites.W / 2 - camX, v.y - 24 - camY,
-                        Graphics.TOP | Graphics.LEFT);
-            }
-        }
+    public void drawVehicle(Graphics g, Vehicle v, int camX, int camY) {
+        int t = (v.driven && v.type == VehicleKit.MOTO) ? VehicleKit.MOTO_RIDER : v.type;
+        Image im = VehicleKit.image(t, v.color, v.h);
+        g.drawImage(im, v.x - im.getWidth() / 2 - camX, v.y - im.getHeight() / 2 - camY,
+                Graphics.TOP | Graphics.LEFT);
     }
 }

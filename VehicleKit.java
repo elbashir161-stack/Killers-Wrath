@@ -1,56 +1,85 @@
 import javax.microedition.lcdui.Image;
 
-/** Draws vehicles (top-down, with outline and shading) at true scale: car = 4.5m x 1.8m. */
+/** Vehicles at true scale (car = 4.5m x 1.8m), drawn top-down in 16 headings. 0 = east, 4 = south, 8 = west, 12 = north. */
 public class VehicleKit {
-    public static final int SEDAN = 0, SPORTS = 1, PICKUP = 2, MOTO = 3;
-    public static final int[] LEN = {72, 70, 80, 36};
-    public static final int[] WID = {30, 28, 32, 16};
-    public static final int[] MAXSP = {7, 9, 6, 8};   // px per tick at top speed
-    public static final int[] ACC = {3, 4, 3, 5};     // in 1/16 px per tick
+    public static final int SEDAN = 0, SPORTS = 1, PICKUP = 2, MOTO = 3, MOTO_RIDER = 4;
+    public static final int[] LEN = {72, 70, 80, 36, 36};
+    public static final int[] WID = {30, 28, 32, 16, 16};
+    public static final int[] MAXSP = {7, 9, 6, 8, 8};   // px per tick at top speed
+    public static final int[] ACC = {3, 4, 3, 5, 5};     // in 1/16 px per tick
+    public static final int[] COS = new int[16];
+    public static final int[] SIN = new int[16];
+
+    static {
+        for (int i = 0; i < 16; i++) {
+            double a = i * Math.PI / 8.0;
+            COS[i] = (int) Math.floor(Math.cos(a) * 256 + 0.5);
+            SIN[i] = (int) Math.floor(Math.sin(a) * 256 + 0.5);
+        }
+    }
 
     private static final int[] CAR_COLORS = {0xFFB52A2A, 0xFF2B5DA8, 0xFFDADADA, 0xFF2A2A2E, 0xFF3C8A4A, 0xFF9AA0A8};
     private static final int[] MOTO_COLORS = {0xFFB52A2A, 0xFF2A2A2E, 0xFF2B5DA8};
     private static final int OUTLINE = 0xFF0C0806;
-    private static final Image[][][] cache = new Image[4][6][4];
+    private static final Image[][][] cache = new Image[5][6][16];
 
-    public static int colorCount(int type) { return type == MOTO ? 3 : 6; }
+    public static int colorCount(int type) { return (type >= MOTO) ? 3 : 6; }
 
-    public static Image image(int type, int color, int dir) {
-        Image im = cache[type][color][dir];
+    public static Image image(int type, int color, int h) {
+        h &= 15;
+        Image im = cache[type][color][h];
         if (im == null) {
-            im = make(type, color, dir);
-            cache[type][color][dir] = im;
+            im = make(type, color, h);
+            cache[type][color][h] = im;
         }
         return im;
     }
 
-    private static Image make(int type, int color, int dir) {
+    private static Image make(int type, int color, int h) {
         int L = LEN[type], W = WID[type];
-        int s = L + 2, h = W + 2;
-        int body = (type == MOTO) ? MOTO_COLORS[color] : CAR_COLORS[color];
-        int[] r = new int[s * h];
+        int s = L + 2, t = W + 2;
+        int body = (type >= MOTO) ? MOTO_COLORS[color] : CAR_COLORS[color];
+        int[] r = new int[s * t];
         if (type == MOTO) moto(r, s, L, W, body);
+        else if (type == MOTO_RIDER) { moto(r, s, L, W, body); rider(r, s); }
         else car(r, s, L, W, type, body);
-        r = outline(r, s, h);
-        if (dir == Sprites.RIGHT) return Image.createRGBImage(r, s, h, true);
-        if (dir == Sprites.LEFT) {
-            int[] o = new int[s * h];
-            for (int y = 0; y < h; y++)
+        r = outline(r, s, t);
+        if (h == 0) return Image.createRGBImage(r, s, t, true);
+        if (h == 8) {
+            int[] o = new int[s * t];
+            for (int y = 0; y < t; y++)
                 for (int x = 0; x < s; x++) o[y * s + x] = r[y * s + (s - 1 - x)];
-            return Image.createRGBImage(o, s, h, true);
+            return Image.createRGBImage(o, s, t, true);
         }
-        // vertical: transpose (front ends up at the bottom = facing down)
-        int[] d = new int[s * h];
-        for (int y = 0; y < h; y++)
-            for (int x = 0; x < s; x++) d[x * h + y] = r[y * s + x];
-        if (dir == Sprites.DOWN) return Image.createRGBImage(d, h, s, true);
-        int[] u = new int[s * h];
-        for (int y = 0; y < s; y++)
-            for (int x = 0; x < h; x++) u[y * h + x] = d[(s - 1 - y) * h + x];
-        return Image.createRGBImage(u, h, s, true);
+        if (h == 4 || h == 12) {
+            int[] d = new int[s * t];                       // transpose: front ends up at the bottom
+            for (int y = 0; y < t; y++)
+                for (int x = 0; x < s; x++) d[x * t + y] = r[y * s + x];
+            if (h == 4) return Image.createRGBImage(d, t, s, true);
+            int[] u = new int[s * t];
+            for (int y = 0; y < s; y++)
+                for (int x = 0; x < t; x++) u[y * t + x] = d[(s - 1 - y) * t + x];
+            return Image.createRGBImage(u, t, s, true);
+        }
+        // in-between headings: rotate the east-facing picture
+        int D = (int) Math.sqrt(s * s + t * t) + 2;
+        int c = COS[h], sn = SIN[h];
+        int[] o = new int[D * D];
+        for (int y = 0; y < D; y++) {
+            for (int x = 0; x < D; x++) {
+                int X2 = 2 * x + 1 - D, Y2 = 2 * y + 1 - D;
+                int un = X2 * c + Y2 * sn + s * 256;
+                int vn = -X2 * sn + Y2 * c + t * 256;
+                if (un < 0 || vn < 0) continue;
+                int u = un / 512, v = vn / 512;
+                if (u >= s || v >= t) continue;
+                o[y * D + x] = r[v * s + u];
+            }
+        }
+        return Image.createRGBImage(o, D, D, true);
     }
 
-    // ---------------- art (facing right) ----------------
+    // ---------------- art (facing east) ----------------
 
     private static void car(int[] p, int s, int L, int W, int type, int body) {
         int tire = 0xFF111114, glass = 0xFF35566E, glassHi = 0xFF6F9AB8;
@@ -101,6 +130,21 @@ public class VehicleKit {
         rect(p, s, 0, 7, 2, 2, 0xFFC01818);
     }
 
+    /** Killer sitting on the bike, seen from above: legs along the tank, torso, arms to the bars, bald head. */
+    private static void rider(int[] p, int s) {
+        int pants = 0xFF14161A, jacket = 0xFF23272D, jacketLt = 0xFF343A44, skin = 0xFF553322;
+        rect(p, s, 11, 2, 9, 3, pants);
+        rect(p, s, 11, 11, 9, 3, pants);
+        rrect(p, s, 12, 3, 8, 10, 3, jacket);
+        rect(p, s, 13, 4, 6, 1, jacketLt);
+        rect(p, s, 19, 4, 7, 2, jacketLt);
+        rect(p, s, 19, 10, 7, 2, jacketLt);
+        rect(p, s, 25, 3, 2, 3, skin);
+        rect(p, s, 25, 10, 2, 3, skin);
+        disc(p, s, 17, 8, 3, skin);
+        rect(p, s, 16, 6, 2, 1, SpriteKit.adj(skin, 135));
+    }
+
     // ---------------- helpers (all coordinates have a 1px margin for the outline) ----------------
 
     private static void put(int[] p, int s, int x, int y, int c) {
@@ -113,6 +157,12 @@ public class VehicleKit {
     private static void rect(int[] p, int s, int x, int y, int w, int h, int c) {
         for (int j = 0; j < h; j++)
             for (int i = 0; i < w; i++) put(p, s, x + i, y + j, c);
+    }
+
+    private static void disc(int[] p, int s, int cx, int cy, int r, int c) {
+        for (int j = -r; j <= r; j++)
+            for (int i = -r; i <= r; i++)
+                if (i * i + j * j <= r * r + 1) put(p, s, cx + i, cy + j, c);
     }
 
     private static void rrect(int[] p, int s, int x, int y, int w, int h, int r, int c) {

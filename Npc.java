@@ -3,7 +3,7 @@ import javax.microedition.lcdui.Graphics;
 
 /** One pedestrian with a personality and a simple state machine. */
 public class Npc {
-    public static final int NORMAL = 0, RECOGNISING = 1, FLEEING = 2, INSIDE = 3, STAND = 4;
+    public static final int NORMAL = 0, RECOGNISING = 1, FLEEING = 2, INSIDE = 3, STAND = 4, DEAD = 5;
     public static final int P_NORMAL = 0, P_COWARD = 1, P_FROZEN = 2, P_BRAVE = 3, P_PANIC = 4;
     private static final int S_AWAY = 0, S_HOME = 1, S_RANDOM = 2;
     private static final int[] CYCLE = {1, 0, 2, 0};
@@ -14,6 +14,8 @@ public class Npc {
     private int door = -1;
     private boolean heardOnly;
     private String bubble;
+    public int hp = 100;
+    private NpcManager mgr;
 
     public Npc(int x, int y, int look, int personality) {
         this.x = x;
@@ -36,16 +38,20 @@ public class Npc {
         bubble = null;
         bubbleT = 0;
         door = -1;
+        hp = 100;
     }
 
     // ---------------- main update ----------------
 
     public void update(NpcManager m, World w, Player k) {
+        mgr = m;
         if (bubbleT > 0) {
             bubbleT--;
             if (bubbleT == 0) bubble = null;
         }
         if (sayCool > 0) sayCool--;
+        if (state == DEAD) return;
+        if (m.driven != null) dodge(m.driven);
         switch (state) {
             case NORMAL: updateNormal(w, k); break;
             case RECOGNISING: updateRecognising(m, w, k); break;
@@ -251,6 +257,60 @@ public class Npc {
         }
     }
 
+    // ---------------- cars ----------------
+
+    /** Step aside when Killer drives straight at us. */
+    private void dodge(Vehicle v) {
+        if (state != NORMAL && state != RECOGNISING && state != STAND) return;
+        if (state == RECOGNISING && personality == P_FROZEN) return;
+        int spd = v.sp < 0 ? -v.sp : v.sp;
+        if (spd < 24) return;
+        int c = VehicleKit.COS[v.h], s = VehicleKit.SIN[v.h];
+        int rx = x - v.x, ry = y - v.y;
+        int fwd = (rx * c + ry * s) / 256;
+        int lat = (-rx * s + ry * c) / 256;
+        if (v.sp < 0) fwd = -fwd;
+        int look = 40 + (spd / 16) * 14;
+        int half = VehicleKit.WID[v.type] / 2 + 20;
+        if (fwd < -10 || fwd > look || lat > half || lat < -half) return;
+        int side = (lat >= 0) ? 1 : -1;
+        int sx = sign(-s * side), sy = sign(c * side);
+        fx = x - sx * 10;
+        fy = y - sy * 10;
+        style = S_AWAY;
+        state = FLEEING;
+        timer = 45;
+        stuck = 0;
+        rT = 0;
+        door = -1;
+        if (bubble == null) say("!", 25);
+    }
+
+    /** Hit by a vehicle (or anything else): hurt, bleed, maybe die. */
+    public void hurt(int dmg, NpcManager m, int sx, int sy) {
+        if (state == DEAD || state == INSIDE) return;
+        hp -= dmg;
+        m.addBlood(x, y - 6, dmg >= 60 ? 2 : (dmg >= 30 ? 1 : 0));
+        if (hp <= 0) {
+            state = DEAD;
+            frame = 0;
+            bubble = null;
+            bubbleT = 0;
+            m.kills++;
+        } else {
+            fx = sx;
+            fy = sy;
+            style = S_AWAY;
+            state = FLEEING;
+            timer = 220;
+            stuck = 0;
+            rT = 0;
+            door = -1;
+            say("AAH!", 40);
+        }
+        m.panicNear(x, y, sx, sy);
+    }
+
     // ---------------- senses ----------------
 
     private boolean canSee(World w, Player k) {
@@ -311,8 +371,14 @@ public class Npc {
     }
 
     private boolean free(int nx, int ny, World w) {
-        return !w.solidAt(nx - 4, ny - 5) && !w.solidAt(nx + 3, ny - 5)
-                && !w.solidAt(nx - 4, ny - 1) && !w.solidAt(nx + 3, ny - 1);
+        boolean inside = w.vehicles != null && w.vehicles.hitParked(x, y - 2); // stuck in a car: let them out
+        if (blockedAt(nx - 4, ny - 5, w, inside) || blockedAt(nx + 3, ny - 5, w, inside)
+                || blockedAt(nx - 4, ny - 1, w, inside) || blockedAt(nx + 3, ny - 1, w, inside)) return false;
+        return mgr == null || !mgr.blocks(nx, ny, x, y, this);
+    }
+
+    private boolean blockedAt(int px, int py, World w, boolean ignoreVehicles) {
+        return ignoreVehicles ? w.solidTerrain(px, py) : w.solidAt(px, py);
     }
 
     private static int abs(int v) { return v < 0 ? -v : v; }
@@ -327,7 +393,7 @@ public class Npc {
     }
 
     public void draw(Graphics g, int camX, int camY) {
-        if (state == INSIDE) return;
+        if (state == INSIDE || state == DEAD) return;
         g.drawImage(NpcSprites.looks[look][dir][frame], x - NpcSprites.W / 2 - camX, y - 28 - camY,
                 Graphics.TOP | Graphics.LEFT);
     }
