@@ -62,7 +62,7 @@ public class WorldCanvas extends GameCanvas implements Runnable {
         world.vehicles = vehicles;
         npcs = new NpcManager(world, player, 36);
         world.npcs = npcs;
-        pigeons = new PigeonManager(world, 24);
+        pigeons = new PigeonManager(world, 60);
         if (save != null) npcs.kills = save.kills;
         district = world.districtName(sx, sy);
         bannerT = 90;
