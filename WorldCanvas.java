@@ -309,7 +309,8 @@ public class WorldCanvas extends GameCanvas implements Runnable {
         int sw = getWidth(), sh = getHeight();
         int camX = player.x - sw / 2;
         int camY = player.y - 14 - sh / 2;
-        int maxX = World.MW * World.TS - sw, maxY = World.MH * World.TS - sh;
+        int maxX = world.mw * World.TS - sw, maxY = world.mh * World.TS - sh;
+    
         if (camX > maxX) camX = maxX;
         if (camX < 0) camX = 0;
         if (camY > maxY) camY = maxY;
