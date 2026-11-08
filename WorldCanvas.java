@@ -8,12 +8,12 @@ public class WorldCanvas extends GameCanvas implements Runnable {
     private static final int FRAME_MS = 40; // 25 fps
 
     private final KillersWrath midlet;
-    private final World world;
+    private World world;
     private final Player player;
-    private final VehicleManager vehicles;
-    private final NpcManager npcs;
+    private VehicleManager vehicles;
+    private NpcManager npcs;
     private final SkidMarks skids = new SkidMarks();
-    private final Image mini;
+    private Image mini;
     private final Font font = Font.getFont(Font.FACE_SYSTEM, Font.STYLE_BOLD, Font.SIZE_SMALL);
     private Thread thread;
     private volatile boolean running = false;
@@ -22,9 +22,9 @@ public class WorldCanvas extends GameCanvas implements Runnable {
     private String msg = null;
     private int msgT = 0;
     private int ticks = 0;
-    private int played = 0;          // play time in ticks (25 per second), saved
-    private int autoT = 0;           // counts up to the next autosave
-    private String menuNote = null;  // result of the last save, shown in the menu
+    private int played = 0;
+    private int autoT = 0;
+    private String menuNote = null;
     private boolean noteOk = true;
 
     // pause menu: 0 none, 1 main, 2 save slots, 3 confirm quit
@@ -36,7 +36,6 @@ public class WorldCanvas extends GameCanvas implements Runnable {
     private String district = "";
     private int bannerT = 0;
 
-    // everything that stands in the world is drawn back-to-front (sorted by its feet / base line)
     private final int[] dk = new int[1024];
     private final int[] dt = new int[1024];
     private final int[] di = new int[1024];
@@ -50,7 +49,7 @@ public class WorldCanvas extends GameCanvas implements Runnable {
         NpcSprites.init();
         world = new World(0);
         mini = world.buildMinimap();
-        int sx = 380 * World.TS + 8, sy = 120 * World.TS + 8;   // pavement beside the central avenue
+        int sx = 380 * World.TS + 8, sy = 120 * World.TS + 8;
         boolean starters = true;
         if (save != null) {
             int[] p = world.safeSpot(save.px, save.py);
@@ -67,6 +66,35 @@ public class WorldCanvas extends GameCanvas implements Runnable {
         if (save != null) npcs.kills = save.kills;
         district = world.districtName(sx, sy);
         bannerT = 90;
+    }
+
+    // ---------------- map switching ----------------
+
+    private void switchWorld(int newArea) {
+        int sx, sy;
+        if (newArea == World.FOREST) {
+            sx = 160 * World.TS;
+            sy = 230 * World.TS;
+        } else {
+            sx = 540 * World.TS;
+            sy = 10 * World.TS;
+        }
+
+        world = new World(newArea);
+        mini = world.buildMinimap();
+        int[] p = world.safeSpot(sx, sy);
+        player.x = p[0];
+        player.y = p[1];
+        driving = null;
+
+        vehicles = new VehicleManager(world, player, (newArea == World.FOREST) ? 0 : 56, false);
+        world.vehicles = vehicles;
+        npcs = new NpcManager(world, player, (newArea == World.FOREST) ? 10 : 36);
+        world.npcs = npcs;
+
+        district = world.districtName(player.x, player.y);
+        bannerT = 90;
+        say(newArea == World.FOREST ? "Entered the Forest" : "Back in the City", 80);
     }
 
     public synchronized void start() {
@@ -105,7 +133,6 @@ public class WorldCanvas extends GameCanvas implements Runnable {
         try {
             ga = getGameAction(keyCode);
         } catch (Exception e) {
-            // ignore
         }
         int n = (menuMode == 1) ? 3 : (menuMode == 2) ? SaveManager.SLOTS + 1 : 2;
         if (ga == UP) menuSel = (menuSel + n - 1) % n;
@@ -194,6 +221,14 @@ public class WorldCanvas extends GameCanvas implements Runnable {
                 } else {
                     player.update(keys, world);
                 }
+
+                // Map exits - City top-right -> Forest, Forest bottom -> City
+                if (world.area == World.CITY && player.y < 20 && player.x > 500 * World.TS) {
+                    switchWorld(World.FOREST);
+                } else if (world.area == World.FOREST && player.y > world.mh * World.TS - 20) {
+                    switchWorld(World.CITY);
+                }
+
                 skids.age();
                 npcs.driven = driving;
                 npcs.playerOnFoot = (driving == null);
@@ -224,7 +259,6 @@ public class WorldCanvas extends GameCanvas implements Runnable {
             try {
                 Thread.sleep(wait);
             } catch (InterruptedException e) {
-                // ignore
             }
         }
     }
@@ -264,7 +298,6 @@ public class WorldCanvas extends GameCanvas implements Runnable {
         }
     }
 
-    /** A free place beside the vehicle (its sides first, then front and back) for Killer to stand. */
     private int[] exitSpot(Vehicle v) {
         int c = VehicleKit.COS[v.h], s = VehicleKit.SIN[v.h];
         int ds = v.wid() / 2 + 10, df = v.len() / 2 + 10;
@@ -310,7 +343,6 @@ public class WorldCanvas extends GameCanvas implements Runnable {
         int camX = player.x - sw / 2;
         int camY = player.y - 14 - sh / 2;
         int maxX = world.mw * World.TS - sw, maxY = world.mh * World.TS - sh;
-    
         if (camX > maxX) camX = maxX;
         if (camX < 0) camX = 0;
         if (camY > maxY) camY = maxY;
@@ -322,7 +354,6 @@ public class WorldCanvas extends GameCanvas implements Runnable {
         skids.draw(g, camX, camY, sw, sh);
         npcs.drawGround(g, camX, camY, sw, sh);
 
-        // collect everything that stands up and draw it back to front
         dn = 0;
         int tc = world.collectTrees(camX, camY, sw, sh);
         for (int i = 0; i < tc; i++) add(world.treeBaseY(world.treeBuf[i]), 0, world.treeBuf[i]);
@@ -351,7 +382,6 @@ public class WorldCanvas extends GameCanvas implements Runnable {
         }
         npcs.drawBubbles(g, font, camX, camY);
 
-        // HUD
         g.setFont(font);
         g.setColor(0x000000);
         g.fillRect(0, 0, sw, font.getHeight() + 2);
@@ -389,7 +419,6 @@ public class WorldCanvas extends GameCanvas implements Runnable {
             g.drawString(district, sw / 2, by + 3, Graphics.TOP | Graphics.HCENTER);
         }
 
-        // minimap
         if (sw >= 160) {
             int mw = mini.getWidth(), mh = mini.getHeight();
             int mx = sw - mw - 3, my = sh - mh - font.getHeight() - 8;
@@ -465,4 +494,4 @@ public class WorldCanvas extends GameCanvas implements Runnable {
             y += lineH;
         }
     }
-}
+    }
