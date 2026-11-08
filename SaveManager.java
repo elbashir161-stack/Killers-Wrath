@@ -13,8 +13,8 @@ public class SaveManager {
     public static final int SLOTS = 3;   // manual slots 0..2
     public static final int AUTO = 3;    // autosave slot
     public static final int TOTAL = 4;
-    private static final String STORE = "KWSaves";
-    private static final int BLOCK = 36; // 7 ints + 1 long
+    private static final String STORE = "KWSaves2";
+    private static final int BLOCK = 40; // 8 ints + 1 long
 
     /** Why the last load/save failed (shown on screen). */
     public static String lastError = "";
@@ -47,7 +47,8 @@ public class SaveManager {
             rs = RecordStore.openRecordStore(STORE, true);
             byte[] all = readAll(rs, recordId(rs));
             DataInputStream in = new DataInputStream(new ByteArrayInputStream(all, slot * BLOCK, BLOCK));
-            if (in.readInt() == 1) {
+            if (in.readInt() == 2) {
+                d.area = in.readInt();
                 d.px = in.readInt();
                 d.py = in.readInt();
                 d.kills = in.readInt();
@@ -74,7 +75,8 @@ public class SaveManager {
             byte[] all = readAll(rs, id);
             ByteArrayOutputStream bo = new ByteArrayOutputStream();
             DataOutputStream out = new DataOutputStream(bo);
-            out.writeInt(1);
+            out.writeInt(2);
+            out.writeInt(d.area);
             out.writeInt(d.px);
             out.writeInt(d.py);
             out.writeInt(d.kills);

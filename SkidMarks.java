@@ -12,6 +12,10 @@ public class SkidMarks {
         for (int i = 0; i < MAX; i++) age[i] = -1;
     }
 
+    public void clear() {
+        for (int i = 0; i < MAX; i++) age[i] = -1;
+    }
+
     /** Call every tick while driving; lays tracks only while the vehicle is skidding. */
     public void update(Vehicle v, World w) {
         if (!v.skidding) {

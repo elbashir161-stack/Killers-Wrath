@@ -62,6 +62,7 @@ public class VehicleManager {
     }
 
     public void update(Player k) {
+        if (list.length == 0) return;
         tick++;
         if (tick % 4 != 0) return;
         Vehicle v = list[(tick / 4) % list.length];

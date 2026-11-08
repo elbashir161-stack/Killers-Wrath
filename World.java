@@ -8,15 +8,21 @@ import javax.microedition.lcdui.Image;
  * Every building gets its own material, roof details, windows, awnings, and sometimes an annex.
  */
 public class World {
-    public static final int TS = 16, MW = 640, MH = 360, MAXDOORS = 2048;
+    public static final int TS = 16, MAXDOORS = 2048, MINI = 8;
+    public static final int CITY = 0, FOREST = 1;
 
     public static final int GRASS = 0, PATH = 1, SIDEWALK = 2, ROAD = 3, ROAD_VY = 4, ROAD_HY = 5,
             ROAD_VW = 6, ROAD_HW = 7, ZEBRA_V = 8, ZEBRA_H = 9, PARKING = 10, PARK_LINE = 11,
             PLAZA = 12, WATER = 13, FIELD = 14, TRACK = 15, TARMAC = 16, RUNWAY = 17, TREE = 18,
             ISLAND = 19, RUNWAY_MARK = 20, FENCE_H = 21, FENCE_V = 22, DUMP_L = 23, DUMP_R = 24,
             BARREL = 25, CRATE = 26, CONE = 27, LAMP = 28, MANHOLE = 29, TRASH = 30, BIN = 31,
-            PUDDLE = 32, ROAD_B = 33, ROAD_C = 34, GRASS2 = 35, GRASS3 = 36, SIDEWALK2 = 37;
-    private static final int B0 = 48, STYLES = 16;
+            PUDDLE = 32, ROAD_B = 33, ROAD_C = 34, GRASS2 = 35, GRASS3 = 36, SIDEWALK2 = 37,
+            DIRT = 38, DIRT_B = 39, FGRASS = 40, FGRASS2 = 41, FGRASS3 = 42, BRUSH = 43, BUSH = 44, STUMP = 45,
+            LOG_L = 46, LOG_R = 47, ROCK = 48, BOULDER_TL = 49, BOULDER_TR = 50, BOULDER_BL = 51, BOULDER_BR = 52,
+            FLOWER_W = 53, FLOWER_P = 54, FLOWER_R = 55, FLOWER_Y = 56, MUSHROOM = 57, FERN = 58, PEBBLES = 59,
+            LILY = 60, CLIFF = 61, CLIFF_B = 62, WATERFALL = 63, FOAM = 64, BRIDGE_H = 65, BRIDGE_V = 66,
+            CAVE_DARK = 67, CAMPFIRE = 68;
+    private static final int B0 = 72, STYLES = 16;
     // building tile parts (each style has PARTS tiles)
     private static final int P_TL = 0, P_T = 1, P_TR = 2, P_L = 3, P_C = 4, P_R = 5, P_BL = 6, P_B = 7, P_BR = 8,
             P_VENT = 9, P_AC = 10, P_SKY = 11, P_TANK = 12, P_CHIM = 13,
@@ -41,10 +47,11 @@ public class World {
     private static final int[] HY = {27, 93, 165, 237, 310};
     private static final int[] HW = {8, 12, 9, 9, 16};
 
-    private final short[] map = new short[MW * MH];
+    public final int area, mw, mh;
+    private final short[] map;
     private final boolean[] solidT = new boolean[1024];
     private final Image[] tiles = new Image[1024];
-    private final Image[] trees = new Image[4];
+    private final Image[] trees = new Image[8];
     public final int[] treeBuf = new int[700];
 
     public final int[] doorX = new int[MAXDOORS];
@@ -69,20 +76,28 @@ public class World {
     private int sd = 5;
     private int lbx, lby, lbw, lbh; // last landmark building
 
-    public World() {
+    /** area = CITY or FOREST. */
+    public World(int area) {
+        this.area = area;
+        mw = (area == FOREST) ? 320 : 640;
+        mh = (area == FOREST) ? 240 : 360;
+        map = new short[mw * mh];
         makeTiles();
-        for (int i = 0; i < 4; i++) trees[i] = TreeArt.tree(i);
+        for (int i = 0; i < 8; i++) trees[i] = TreeArt.tree(i);
         for (int i = 0; i < 1024; i++) solidT[i] = (i >= B0);
-        int[] hard = {WATER, TREE, ISLAND, FENCE_H, FENCE_V, DUMP_L, DUMP_R, BARREL, CRATE, LAMP, BIN};
+        int[] hard = {WATER, TREE, ISLAND, FENCE_H, FENCE_V, DUMP_L, DUMP_R, BARREL, CRATE, LAMP, BIN,
+                BRUSH, BUSH, STUMP, LOG_L, LOG_R, ROCK, BOULDER_TL, BOULDER_TR, BOULDER_BL, BOULDER_BR,
+                LILY, CLIFF, CLIFF_B, WATERFALL, FOAM};
         for (int i = 0; i < hard.length; i++) solidT[hard[i]] = true;
-        generate();
+        if (area == FOREST) generateForest();
+        else generate();
     }
 
     // ===================== queries =====================
 
     public int tileAt(int tx, int ty) {
-        if (tx < 0 || ty < 0 || tx >= MW || ty >= MH) return -1;
-        return map[ty * MW + tx];
+        if (tx < 0 || ty < 0 || tx >= mw || ty >= mh) return -1;
+        return map[ty * mw + tx];
     }
 
     public boolean isSidewalk(int tx, int ty) {
@@ -96,8 +111,8 @@ public class World {
     }
 
     public boolean solidTerrain(int px, int py) {
-        if (px < 0 || py < 0 || px >= MW * TS || py >= MH * TS) return true;
-        return solidT[map[(py / TS) * MW + (px / TS)]];
+        if (px < 0 || py < 0 || px >= mw * TS || py >= mh * TS) return true;
+        return solidT[map[(py / TS) * mw + (px / TS)]];
     }
 
     /** Hard ground (road, pavement, car park...): tyre tracks show here. */
@@ -110,8 +125,14 @@ public class World {
 
     /** Name of the part of the city at this pixel position (shown on screen and in save slots). */
     public String districtName(int px, int py) {
+        if (area == FOREST) return forestName(px / TS, py / TS);
+        return cityDistrict(px, py);
+    }
+
+    /** City district names (static so a save slot can show them without building the city). */
+    public static String cityDistrict(int px, int py) {
         int tx = px / TS, ty = py / TS;
-        if (get(tx, ty) == WATER) return "Riverside";
+        if (isWater(tx, ty)) return "Riverside";
         int c = 0;
         for (int i = 0; i < 7; i++) if (tx > VX[i]) c++;
         int r = 0;
@@ -153,7 +174,7 @@ public class World {
                 }
             }
         }
-        return new int[] {380 * TS + 8, 120 * TS + 8};
+        return entryPoint();
     }
 
     // ===================== drawing =====================
@@ -162,10 +183,10 @@ public class World {
         int tx0 = camX / TS, ty0 = camY / TS;
         int tx1 = (camX + sw - 1) / TS, ty1 = (camY + sh - 1) / TS;
         for (int ty = ty0; ty <= ty1; ty++) {
-            if (ty < 0 || ty >= MH) continue;
+            if (ty < 0 || ty >= mh) continue;
             for (int tx = tx0; tx <= tx1; tx++) {
-                if (tx < 0 || tx >= MW) continue;
-                g.drawImage(tiles[map[ty * MW + tx]], tx * TS - camX, ty * TS - camY,
+                if (tx < 0 || tx >= mw) continue;
+                g.drawImage(tiles[map[ty * mw + tx]], tx * TS - camX, ty * TS - camY,
                         Graphics.TOP | Graphics.LEFT);
             }
         }
@@ -176,39 +197,42 @@ public class World {
         }
     }
 
-    /** Fills treeBuf with the trees that can be seen; returns how many. Each entry is ty * MW + tx. */
+    /** Fills treeBuf with the trees that can be seen; returns how many. Each entry is ty * mw + tx. */
     public int collectTrees(int camX, int camY, int sw, int sh) {
         int n = 0;
         int tx0 = camX / TS - 4, tx1 = (camX + sw) / TS + 4;
-        int ty0 = camY / TS - 1, ty1 = (camY + sh) / TS + 8;
+        int ty0 = camY / TS - 1, ty1 = (camY + sh) / TS + 10;
         for (int ty = ty0; ty <= ty1; ty++) {
-            if (ty < 0 || ty >= MH) continue;
+            if (ty < 0 || ty >= mh) continue;
             for (int tx = tx0; tx <= tx1; tx++) {
-                if (tx < 0 || tx >= MW) continue;
-                if (map[ty * MW + tx] == TREE && n < treeBuf.length) treeBuf[n++] = ty * MW + tx;
+                if (tx < 0 || tx >= mw) continue;
+                if (map[ty * mw + tx] == TREE && n < treeBuf.length) treeBuf[n++] = ty * mw + tx;
             }
         }
         return n;
     }
 
     public int treeBaseY(int idx) {
-        return (idx / MW) * TS + 13;
+        return (idx / mw) * TS + 13;
     }
 
     public void drawTree(Graphics g, int idx, int camX, int camY) {
-        int tx = idx % MW, ty = idx / MW;
+        int tx = idx % mw, ty = idx / mw;
         int h = ((tx * 31 + ty * 17) & 0x7FFF) % 20;
-        Image im = trees[(h < 7) ? 0 : (h < 12) ? 1 : (h < 17) ? 2 : 3];
+        int v;
+        if (area == FOREST) v = (h < 5) ? 6 : (h < 9) ? 0 : (h < 13) ? 4 : (h < 15) ? 2 : (h < 17) ? 5 : (h < 19) ? 7 : 1;
+        else v = (h < 7) ? 0 : (h < 12) ? 1 : (h < 17) ? 2 : 3;
+        Image im = trees[v];
         g.drawImage(im, tx * TS + 8 - im.getWidth() / 2 - camX, ty * TS + 13 - im.getHeight() - camY,
                 Graphics.TOP | Graphics.LEFT);
     }
 
     public Image buildMinimap() {
-        int w = MW / 8, h = MH / 8;
+        int w = mw / 8, h = mh / 8;
         int[] px = new int[w * h];
         for (int y = 0; y < h; y++) {
             for (int x = 0; x < w; x++) {
-                int t = map[(y * 8 + 4) * MW + x * 8 + 4];
+                int t = map[(y * 8 + 4) * mw + x * 8 + 4];
                 int c;
                 if (t >= B0) c = 0x8A7A62;
                 else if (t == WATER) c = 0x1F4A58;
@@ -216,6 +240,7 @@ public class World {
                 else if (t == GRASS || t == GRASS2 || t == GRASS3 || t == FIELD || t == ISLAND) c = 0x3A4A2C;
                 else if (isRoadTile(t)) c = 0x44464A;
                 else if (t == PARKING || t == PARK_LINE || t == TARMAC || t == RUNWAY || t == RUNWAY_MARK) c = 0x56585C;
+                else if (t >= DIRT && t < B0) c = forestMini(t);
                 else c = 0x8A8676;
                 px[y * w + x] = 0xFF000000 | c;
             }
@@ -241,12 +266,12 @@ public class World {
     }
 
     private void set(int tx, int ty, int t) {
-        if (tx >= 0 && ty >= 0 && tx < MW && ty < MH) map[ty * MW + tx] = (short) t;
+        if (tx >= 0 && ty >= 0 && tx < mw && ty < mh) map[ty * mw + tx] = (short) t;
     }
 
     private int get(int tx, int ty) {
-        if (tx < 0 || ty < 0 || tx >= MW || ty >= MH) return -1;
-        return map[ty * MW + tx];
+        if (tx < 0 || ty < 0 || tx >= mw || ty >= mh) return -1;
+        return map[ty * mw + tx];
     }
 
     private void fill(int x0, int y0, int x1, int y1, int t) {
@@ -265,7 +290,7 @@ public class World {
     }
 
     private void generate() {
-        fill(0, 0, MW - 1, MH - 1, GRASS);
+        fill(0, 0, mw - 1, mh - 1, GRASS);
         for (int ty = 0; ty < 80; ty++)
             for (int tx = 0; tx < 110; tx++)
                 if (isWater(tx, ty)) set(tx, ty, WATER);
@@ -273,21 +298,21 @@ public class World {
             for (int c = 0; c < 8; c++) block(c, r);
         roads();
         extendPaths();
+        cityExitRoad();
         litter();
         weather();
-        addSign("To Highway", 320 * TS, (hhi(4) + 6) * TS, 0x1E5A3A);
     }
 
     private int bx0(int c) { return c == 0 ? 0 : vhi(c - 1) + 3; }
-    private int bx1(int c) { return c == 7 ? MW - 1 : vlo(c) - 3; }
+    private int bx1(int c) { return c == 7 ? mw - 1 : vlo(c) - 3; }
     private int by0(int r) { return r == 0 ? 0 : hhi(r - 1) + 3; }
-    private int by1(int r) { return r == 5 ? MH - 1 : hlo(r) - 3; }
+    private int by1(int r) { return r == 5 ? mh - 1 : hlo(r) - 3; }
 
     private void block(int c, int r) {
         int x0 = bx0(c), x1 = bx1(c), y0 = by0(r), y1 = by1(r);
         if (r >= 0 && r <= 1 && c >= 6) return;           // belongs to airport / forest on the right
-        if (r == 0 && c == 5) { forest(x0, y0, MW - 1, y1); return; }
-        if (r == 1 && c == 5) { airport(x0, y0, MW - 2, y1); return; }
+        if (r == 0 && c == 5) { forest(x0, y0, mw - 1, y1); return; }
+        if (r == 1 && c == 5) { airport(x0, y0, mw - 2, y1); return; }
         if (r == 5 || c == 0 || c == 7) { forest(x0, y0, x1, y1); return; }
         switch (r * 10 + c) {
             case 1: case 2: case 3: case 4:
@@ -639,14 +664,14 @@ public class World {
     private void roads() {
         int bottom = hlo(4) - 1;
         for (int i = 0; i < 5; i++) {
-            fill(0, hlo(i) - 2, MW - 1, hlo(i) - 1, SIDEWALK);
-            fill(0, hhi(i) + 1, MW - 1, hhi(i) + 2, SIDEWALK);
+            fill(0, hlo(i) - 2, mw - 1, hlo(i) - 1, SIDEWALK);
+            fill(0, hhi(i) + 1, mw - 1, hhi(i) + 2, SIDEWALK);
         }
         for (int i = 0; i < 7; i++) {
             fill(vlo(i) - 2, vtop(i), vlo(i) - 1, bottom, SIDEWALK);
             fill(vhi(i) + 1, vtop(i), vhi(i) + 2, bottom, SIDEWALK);
         }
-        for (int i = 0; i < 5; i++) fill(0, hlo(i), MW - 1, hhi(i), ROAD);
+        for (int i = 0; i < 5; i++) fill(0, hlo(i), mw - 1, hhi(i), ROAD);
         for (int i = 0; i < 7; i++) fill(vlo(i), vtop(i), vhi(i), bottom, ROAD);
         for (int i = 0; i < 7; i++) {
             int cx = vlo(i) + VW[i] / 2;
@@ -663,7 +688,7 @@ public class World {
         }
         for (int i = 0; i < 5; i++) {
             int cy = hlo(i) + HW[i] / 2;
-            for (int tx = 0; tx < MW; tx++) {
+            for (int tx = 0; tx < mw; tx++) {
                 boolean cross = false;
                 for (int k = 0; k < 7; k++)
                     if (tx >= vlo(k) - 3 && tx <= vhi(k) + 3 && cy >= vtop(k) && cy <= bottom) cross = true;
@@ -701,7 +726,7 @@ public class World {
         // street lamps on the outer edge of the pavements
         for (int i = 0; i < 5; i++) {
             int yN = hlo(i) - 2, yS = hhi(i) + 2;
-            for (int tx = 10; tx < MW; tx += 28) {
+            for (int tx = 10; tx < mw; tx += 28) {
                 if (get(tx, yN) == SIDEWALK) set(tx, yN, LAMP);
                 if (get(tx + 14, yS) == SIDEWALK) set(tx + 14, yS, LAMP);
             }
@@ -718,20 +743,20 @@ public class World {
     /** Manholes, puddles, cones and rubbish. */
     private void litter() {
         for (int i = 0; i < 90; i++) {
-            int tx = rnd(MW), ty = rnd(MH);
+            int tx = rnd(mw), ty = rnd(mh);
             if (get(tx, ty) == ROAD) set(tx, ty, MANHOLE);
         }
         for (int i = 0; i < 200; i++) {
-            int tx = rnd(MW), ty = rnd(MH);
+            int tx = rnd(mw), ty = rnd(mh);
             if (get(tx, ty) == ROAD) set(tx, ty, PUDDLE);
         }
         for (int i = 0; i < 700; i++) {
-            int tx = rnd(MW), ty = rnd(MH);
+            int tx = rnd(mw), ty = rnd(mh);
             if (get(tx, ty) == SIDEWALK && rnd(3) == 0) set(tx, ty, TRASH);
         }
         int cones = 0;
         for (int i = 0; i < 4000 && cones < 90; i++) {
-            int tx = rnd(MW), ty = rnd(MH);
+            int tx = rnd(mw), ty = rnd(mh);
             if (get(tx, ty) != ROAD) continue;
             if (get(tx - 1, ty) == SIDEWALK || get(tx + 1, ty) == SIDEWALK
                     || get(tx, ty - 1) == SIDEWALK || get(tx, ty + 1) == SIDEWALK) {
@@ -743,18 +768,18 @@ public class World {
 
     /** Last step: worn patches on roads, dead grass, cracked pavement. */
     private void weather() {
-        for (int ty = 0; ty < MH; ty++) {
-            for (int tx = 0; tx < MW; tx++) {
-                int t = map[ty * MW + tx];
+        for (int ty = 0; ty < mh; ty++) {
+            for (int tx = 0; tx < mw; tx++) {
+                int t = map[ty * mw + tx];
                 int r = rnd(100);
                 if (t == ROAD) {
-                    if (r < 14) map[ty * MW + tx] = ROAD_B;
-                    else if (r < 24) map[ty * MW + tx] = ROAD_C;
+                    if (r < 14) map[ty * mw + tx] = ROAD_B;
+                    else if (r < 24) map[ty * mw + tx] = ROAD_C;
                 } else if (t == GRASS) {
-                    if (r < 14) map[ty * MW + tx] = GRASS2;
-                    else if (r < 24) map[ty * MW + tx] = GRASS3;
+                    if (r < 14) map[ty * mw + tx] = GRASS2;
+                    else if (r < 24) map[ty * mw + tx] = GRASS3;
                 } else if (t == SIDEWALK && r < 12) {
-                    map[ty * MW + tx] = SIDEWALK2;
+                    map[ty * mw + tx] = SIDEWALK2;
                 }
             }
         }
@@ -780,7 +805,7 @@ public class World {
         tiles[GRASS] = grass(0);
         tiles[GRASS2] = grass(1);
         tiles[GRASS3] = grass(2);
-        tiles[TREE] = grass(0);
+        tiles[TREE] = (area == FOREST) ? fgrass(0) : grass(0);
         tiles[ISLAND] = grass(0);
         tiles[PATH] = paved(0x6F6A5C, 0x5C584C, false);
         tiles[SIDEWALK] = paved(0x5E5C54, 0x4C4A44, false);
@@ -815,6 +840,7 @@ public class World {
         tiles[TRASH] = trash();
         tiles[BIN] = bin();
         tiles[PUDDLE] = puddle();
+        forestTiles();
         for (int s = 0; s < STYLES; s++) {
             for (int p = 0; p < PARTS; p++) {
                 if (p <= P_CHIM) tiles[B0 + s * PARTS + p] = roof(s, p);
@@ -1015,6 +1041,527 @@ public class World {
         Graphics g = im.getGraphics();
         col(g, 0x1B262C); g.fillArc(1, 4, 14, 8, 0, 360);
         col(g, 0x2C3D46); g.fillArc(3, 5, 6, 3, 0, 360);
+        return im;
+    }
+
+    // ===================== areas: city exit road, gates =====================
+
+    /** The city's only way out: a road running south from the highway to the edge of the map. */
+    private void cityExitRoad() {
+        for (int ty = 316; ty < mh; ty++) {
+            for (int tx = 317; tx <= 323; tx++) set(tx, ty, ROAD);
+            if (ty % 6 < 4) set(320, ty, ROAD_VY);
+        }
+        addSign("BLACKWOOD FOREST", 310 * TS, 336 * TS, 0x1E4A2E);
+    }
+
+    /** Where to start a brand new game (city only). */
+    public int[] startPoint() {
+        return new int[] {380 * TS + 8, 120 * TS + 8};
+    }
+
+    /** Where Killer appears when he arrives from the other area. */
+    public int[] entryPoint() {
+        if (area == FOREST) return new int[] {160 * TS + 8, 14 * TS};
+        return new int[] {320 * TS + 8, (mh - 12) * TS};
+    }
+
+    /** Returns the area to go to if this spot is an exit, otherwise -1. */
+    public int exitAt(int px, int py) {
+        int tx = px / TS, ty = py / TS;
+        if (area == CITY) {
+            if (ty >= mh - 3 && tx >= 316 && tx <= 324) return FOREST;
+        } else if (ty <= 2 && tx >= 154 && tx <= 166) {
+            return CITY;
+        }
+        return -1;
+    }
+
+    private String forestName(int tx, int ty) {
+        if (tx > 235 && tx < 280 && ty < 50) return "The Falls";
+        if (tx < 70 && ty < 50) return "Old Cave";
+        if (tx > 280 && ty < 50) return "Dark Cave";
+        return "Blackwood Forest";
+    }
+
+    private static int forestMini(int t) {
+        if (t == DIRT || t == DIRT_B || t == BRIDGE_H || t == BRIDGE_V) return 0x6A5A44;
+        if (t == BRUSH || t == BUSH) return 0x1C3A22;
+        if (t == CLIFF || t == CLIFF_B || t == ROCK || (t >= BOULDER_TL && t <= BOULDER_BR)) return 0x5A5C5A;
+        if (t == LILY || t == WATERFALL || t == FOAM) return 0x1F4A58;
+        if (t == CAVE_DARK) return 0x0A0C0A;
+        return 0x2A3E26;
+    }
+
+    // ===================== the forest area =====================
+
+    private final int[] tpx = new int[2400];
+    private final int[] tpy = new int[2400];
+    private final boolean[] tvert = new boolean[2400];
+    private int tn = 0;
+
+    private static boolean isFloor(int t) {
+        return t == FGRASS || t == FGRASS2 || t == FGRASS3;
+    }
+
+    /** Big, dense, dark forest: clearings, cliffs with caves, a waterfall and river, ponds, trails, rocks and logs. */
+    private void generateForest() {
+        byte[] zone = new byte[mw * mh];      // 1 = on a trail, 2 = open clearing
+        for (int ty = 0; ty < mh; ty++) {
+            for (int tx = 0; tx < mw; tx++) {
+                int r = rnd(100);
+                set(tx, ty, r < 60 ? FGRASS : (r < 82 ? FGRASS2 : FGRASS3));
+            }
+        }
+        // thick wall of undergrowth round the whole forest (the gate in the north is cut through it later)
+        for (int ty = 0; ty < mh; ty++)
+            for (int tx = 0; tx < mw; tx++)
+                if (tx < 6 || tx >= mw - 6 || ty < 6 || ty >= mh - 6) set(tx, ty, BRUSH);
+        for (int i = 8; i < mw - 8; i += 5) { set(i, 2, TREE); set(i + 2, mh - 3, TREE); }
+        for (int i = 8; i < mh - 8; i += 5) { set(2, i, TREE); set(mw - 3, i, TREE); }
+
+        // trails: main one from the city gate, west to the old cave, east to the dark cave, two closed ones south
+        tn = 0;
+        trailPts(new int[] {160, 160, 152, 158, 160}, new int[] {0, 24, 52, 84, 104});
+        trailPts(new int[] {152, 118, 84, 52, 42}, new int[] {62, 58, 46, 34, 30});
+        trailPts(new int[] {162, 198, 232, 262, 284, 297}, new int[] {90, 84, 72, 60, 48, 38});
+        trailPts(new int[] {160, 152, 128, 112, 104}, new int[] {104, 140, 172, 198, 220});
+        trailPts(new int[] {160, 184, 206, 214}, new int[] {110, 150, 184, 220});
+        for (int i = 0; i < tn; i++) zdisc(zone, tpx[i], tpy[i], 6, 1, false);
+        int[][] cl = {{160, 112, 46}, {62, 92, 18}, {246, 112, 16}, {118, 170, 20}, {200, 204, 16}, {150, 42, 12}, {40, 160, 14}};
+        for (int i = 0; i < cl.length; i++) zdisc(zone, cl[i][0], cl[i][1], cl[i][2], 2, true);
+
+        // cliffs: two caves and a waterfall
+        cliff(28, 12, 54, 28);
+        fill(40, 22, 41, 28, CAVE_DARK);
+        cliff(284, 14, 312, 34);
+        fill(297, 29, 298, 34, CAVE_DARK);
+        cliff(240, 6, 275, 22);
+        fill(252, 8, 255, 22, WATERFALL);
+        fill(250, 23, 257, 23, FOAM);
+
+        // the river runs from the waterfall down to a pond; ponds and a lake
+        int[] rx = {254, 256, 262, 270, 270, 252, 236};
+        int[] ry = {25, 46, 68, 92, 118, 142, 160};
+        river(rx, ry, rx.length);
+        pond(50, 186, 22, 11, zone);
+        pond(95, 120, 10, 7, zone);
+        pond(226, 176, 18, 10, zone);
+        pond(280, 150, 12, 8, zone);
+        pond(30, 110, 9, 6, zone);
+
+        // trails over everything; where one meets water it becomes a wooden bridge
+        for (int i = 0; i < tn; i++) trailDisc(tpx[i], tpy[i], tvert[i]);
+        for (int y = 0; y < 10; y++) if (y % 6 < 4) set(160, y, ROAD_VY);
+
+        // the south trails are closed (the world map comes later)
+        for (int x = 98; x <= 110; x += 2) boulder(x, 224);
+        for (int x = 208; x <= 220; x += 2) boulder(x, 226);
+
+        forestDecor(zone);
+        addSign("TO THE CITY", 178 * TS, 8 * TS, 0x1B2A55);
+        addSign("FOREST ROAD CLOSED", 104 * TS, 216 * TS, 0x6A2A1A);
+        addSign("FOREST ROAD CLOSED", 214 * TS, 218 * TS, 0x6A2A1A);
+    }
+
+    private void zdisc(byte[] zone, int cx, int cy, int r, int val, boolean keepTrail) {
+        for (int y = -r; y <= r; y++) {
+            for (int x = -r; x <= r; x++) {
+                if (x * x + y * y > r * r) continue;
+                int tx = cx + x, ty = cy + y;
+                if (tx < 0 || ty < 0 || tx >= mw || ty >= mh) continue;
+                if (keepTrail && zone[ty * mw + tx] == 1) continue;
+                zone[ty * mw + tx] = (byte) val;
+            }
+        }
+    }
+
+    private void cliff(int x0, int y0, int x1, int y1) {
+        for (int tx = x0; tx <= x1; tx++) {
+            int bottom = y1 - rnd(3);
+            int top = (tx < x0 + 3 || tx > x1 - 3) ? y0 + 3 : y0;
+            for (int ty = top; ty <= bottom; ty++) set(tx, ty, rnd(4) == 0 ? CLIFF_B : CLIFF);
+        }
+    }
+
+    private void boulder(int x, int y) {
+        set(x, y, BOULDER_TL); set(x + 1, y, BOULDER_TR);
+        set(x, y + 1, BOULDER_BL); set(x + 1, y + 1, BOULDER_BR);
+    }
+
+    private void blob(int cx, int cy, int rx, int ry, int tile, byte[] zone) {
+        for (int y = -ry - 1; y <= ry + 1; y++) {
+            for (int x = -rx - 1; x <= rx + 1; x++) {
+                int tx = cx + x, ty = cy + y;
+                if (tx < 8 || ty < 8 || tx >= mw - 8 || ty >= mh - 8) continue;
+                if (zone[ty * mw + tx] == 1) continue;
+                int lim = rx * rx * ry * ry * (88 + rnd(24)) / 100;
+                if (x * x * ry * ry + y * y * rx * rx <= lim && isFloor(get(tx, ty))) set(tx, ty, tile);
+            }
+        }
+    }
+
+    private void pond(int cx, int cy, int rx, int ry, byte[] zone) {
+        blob(cx, cy, rx, ry, WATER, zone);
+        for (int y = -ry; y <= ry; y++)
+            for (int x = -rx; x <= rx; x++)
+                if (get(cx + x, cy + y) == WATER && rnd(100) < 9) set(cx + x, cy + y, LILY);
+    }
+
+    private void river(int[] wx, int[] wy, int n) {
+        int jit = 0;
+        for (int i = 0; i + 1 < n; i++) {
+            int dx = wx[i + 1] - wx[i], dy = wy[i + 1] - wy[i];
+            int steps = Math.max(dx < 0 ? -dx : dx, dy < 0 ? -dy : dy);
+            if (steps == 0) continue;
+            for (int s = 0; s <= steps; s++) {
+                int x = wx[i] + dx * s / steps, y = wy[i] + dy * s / steps;
+                if (s % 5 == 0) { jit += rnd(3) - 1; if (jit > 2) jit = 2; if (jit < -2) jit = -2; }
+                int r = 2 + ((s / 7) % 2);
+                for (int yy = -r; yy <= r; yy++)
+                    for (int xx = -r; xx <= r; xx++) {
+                        if (xx * xx + yy * yy > r * r + 1) continue;
+                        int tx = x + xx + jit, ty = y + yy;
+                        if (isFloor(get(tx, ty))) set(tx, ty, WATER);
+                    }
+            }
+        }
+    }
+
+    private void trailPts(int[] wx, int[] wy) {
+        int jit = 0;
+        for (int i = 0; i + 1 < wx.length; i++) {
+            int dx = wx[i + 1] - wx[i], dy = wy[i + 1] - wy[i];
+            int adx = dx < 0 ? -dx : dx, ady = dy < 0 ? -dy : dy;
+            int steps = adx > ady ? adx : ady;
+            if (steps == 0) continue;
+            boolean vert = ady >= adx;
+            for (int s = 0; s <= steps && tn < tpx.length; s++) {
+                int x = wx[i] + dx * s / steps, y = wy[i] + dy * s / steps;
+                if (s % 6 == 0) { jit += rnd(3) - 1; if (jit > 2) jit = 2; if (jit < -2) jit = -2; }
+                if (y > 16) x += jit;
+                tpx[tn] = x; tpy[tn] = y; tvert[tn] = vert; tn++;
+            }
+        }
+    }
+
+    private void trailDisc(int cx, int cy, boolean vert) {
+        for (int yy = -3; yy <= 3; yy++) {
+            for (int xx = -3; xx <= 3; xx++) {
+                if (xx * xx + yy * yy > 10) continue;
+                int tx = cx + xx, ty = cy + yy, t = get(tx, ty);
+                if (t == -1 || t == CLIFF || t == CLIFF_B || t == WATERFALL) continue;
+                if (ty < 10) set(tx, ty, ROAD);
+                else if (t == WATER || t == FOAM || t == LILY || t == BRIDGE_H || t == BRIDGE_V)
+                    set(tx, ty, vert ? BRIDGE_V : BRIDGE_H);
+                else set(tx, ty, rnd(4) == 0 ? DIRT_B : DIRT);
+            }
+        }
+    }
+
+    private boolean floor2x2(byte[] zone, int tx, int ty) {
+        for (int dy = 0; dy < 2; dy++)
+            for (int dx = 0; dx < 2; dx++)
+                if (!isFloor(get(tx + dx, ty + dy)) || zone[(ty + dy) * mw + tx + dx] == 1) return false;
+        return true;
+    }
+
+    /** Trees, bushes, ferns, mushrooms, flowers, stumps, logs and rocks. */
+    private void forestDecor(byte[] zone) {
+        for (int gy = 8; gy < mh - 8; gy += 4) {                       // trees: dense woods, sparse clearings
+            for (int gx = 8; gx < mw - 8; gx += 4) {
+                int tx = gx + rnd(4), ty = gy + rnd(4);
+                int z = zone[ty * mw + tx];
+                if (z == 1 || !isFloor(get(tx, ty))) continue;
+                if (rnd(100) < (z == 2 ? 14 : 74)) set(tx, ty, TREE);
+            }
+        }
+        for (int ty = 8; ty < mh - 8; ty++) {
+            for (int tx = 8; tx < mw - 8; tx++) {
+                if (!isFloor(map[ty * mw + tx])) continue;
+                int z = zone[ty * mw + tx];
+                int r = rnd(1000);
+                if (z == 1) {                                          // trail verge: ferns and pebbles only
+                    if (r < 14) set(tx, ty, FERN);
+                    else if (r < 24) set(tx, ty, PEBBLES);
+                    continue;
+                }
+                int acc = (z == 2) ? 10 : 38;
+                if (r < acc) { set(tx, ty, BUSH); continue; }
+                acc += 26; if (r < acc) { set(tx, ty, FERN); continue; }
+                acc += 7; if (r < acc) { set(tx, ty, MUSHROOM); continue; }
+                acc += 9; if (r < acc) { set(tx, ty, PEBBLES); continue; }
+                acc += 3; if (r < acc) { set(tx, ty, STUMP); continue; }
+                acc += 3; if (r < acc) set(tx, ty, ROCK);
+            }
+        }
+        for (int i = 0; i < 300; i++) {                                // flower patches
+            int cx = 10 + rnd(mw - 20), cy = 10 + rnd(mh - 20);
+            int kind = FLOWER_W + rnd(4);
+            for (int k = 0; k < 9; k++) {
+                int tx = cx + rnd(7) - 3, ty = cy + rnd(7) - 3;
+                if (isFloor(get(tx, ty))) set(tx, ty, kind);
+            }
+        }
+        for (int i = 0; i < 200; i++) {                                // boulders
+            int tx = 9 + rnd(mw - 20), ty = 9 + rnd(mh - 20);
+            if (floor2x2(zone, tx, ty)) boulder(tx, ty);
+        }
+        for (int i = 0; i < 150; i++) {                                // fallen logs
+            int tx = 9 + rnd(mw - 20), ty = 9 + rnd(mh - 20);
+            if (zone[ty * mw + tx] != 1 && zone[ty * mw + tx + 1] != 1
+                    && isFloor(get(tx, ty)) && isFloor(get(tx + 1, ty))) {
+                set(tx, ty, LOG_L);
+                set(tx + 1, ty, LOG_R);
+            }
+        }
+    }
+
+    // ===================== forest tile art =====================
+
+    private void forestTiles() {
+        tiles[DIRT] = dirt(0);
+        tiles[DIRT_B] = dirt(1);
+        tiles[FGRASS] = fgrass(0);
+        tiles[FGRASS2] = fgrass(1);
+        tiles[FGRASS3] = fgrass(2);
+        tiles[BRUSH] = brushTile();
+        tiles[BUSH] = bushTile();
+        tiles[STUMP] = stumpTile();
+        tiles[LOG_L] = logTile(true);
+        tiles[LOG_R] = logTile(false);
+        tiles[ROCK] = rockTile();
+        boulderTiles();
+        tiles[FLOWER_W] = flowerTile(0xD8D8E0);
+        tiles[FLOWER_P] = flowerTile(0x8A5AB0);
+        tiles[FLOWER_R] = flowerTile(0xB03030);
+        tiles[FLOWER_Y] = flowerTile(0xC8A828);
+        tiles[MUSHROOM] = mushroomTile();
+        tiles[FERN] = fernTile();
+        tiles[PEBBLES] = pebbleTile();
+        tiles[LILY] = lilyTile();
+        tiles[CLIFF] = cliffTile(0);
+        tiles[CLIFF_B] = cliffTile(1);
+        tiles[WATERFALL] = waterfallTile();
+        tiles[FOAM] = foamTile();
+        tiles[BRIDGE_H] = bridgeTile(true);
+        tiles[BRIDGE_V] = bridgeTile(false);
+        tiles[CAVE_DARK] = caveTile();
+    }
+
+    private Image fgrass(int v) {
+        Image im = tile();
+        Graphics g = im.getGraphics();
+        sd = 41 + v * 9;
+        int base = (v == 0) ? 0x26331F : (v == 1) ? 0x2C2B1B : 0x29402A;
+        col(g, base); g.fillRect(0, 0, TS, TS);
+        speck(g, a(base, 125), 10);
+        speck(g, a(base, 72), 12);
+        if (v == 1) { speck(g, 0x5A4426, 7); speck(g, 0x44341C, 5); }                       // fallen leaves
+        if (v == 2) { col(g, 0x34502C); g.fillRect(2, 9, 5, 3); g.fillRect(9, 3, 4, 3); speck(g, 0x3E6234, 8); } // moss
+        return im;
+    }
+
+    private Image dirt(int v) {
+        Image im = tile();
+        Graphics g = im.getGraphics();
+        sd = 91 + v * 5;
+        int base = (v == 0) ? 0x4A4032 : 0x524634;
+        col(g, base); g.fillRect(0, 0, TS, TS);
+        speck(g, a(base, 120), 10);
+        speck(g, a(base, 70), 12);
+        if (v == 1) { col(g, 0x6A6A60); g.fillRect(5, 6, 2, 2); g.fillRect(11, 11, 3, 2); }
+        return im;
+    }
+
+    private Image brushTile() {
+        Image im = fgrass(1);
+        Graphics g = im.getGraphics();
+        col(g, 0x12301A); g.fillArc(-2, 2, 11, 11, 0, 360); g.fillArc(7, 1, 11, 12, 0, 360); g.fillArc(3, 6, 12, 11, 0, 360);
+        col(g, 0x1E4A26); g.fillArc(-1, 3, 9, 8, 0, 360); g.fillArc(8, 2, 8, 9, 0, 360); g.fillArc(4, 8, 9, 7, 0, 360);
+        col(g, 0x2E6034); g.fillArc(1, 4, 5, 4, 0, 360); g.fillArc(9, 3, 5, 4, 0, 360); g.fillArc(6, 9, 5, 4, 0, 360);
+        sd = 5; speck(g, 0x4A8444, 5);
+        return im;
+    }
+
+    private Image bushTile() {
+        Image im = fgrass(0);
+        Graphics g = im.getGraphics();
+        col(g, 0x10281A); g.fillArc(1, 3, 14, 12, 0, 360);
+        col(g, 0x1C4424); g.fillArc(2, 3, 12, 10, 0, 360);
+        col(g, 0x2C5E32); g.fillArc(3, 4, 7, 6, 0, 360);
+        col(g, 0x4A8A48); g.fillRect(5, 5, 2, 1);
+        col(g, 0xA02828); g.fillRect(10, 8, 1, 1); g.fillRect(6, 10, 1, 1);
+        return im;
+    }
+
+    private Image stumpTile() {
+        Image im = fgrass(0);
+        Graphics g = im.getGraphics();
+        col(g, 0x2A1E12); g.fillArc(2, 5, 12, 10, 0, 360);
+        col(g, 0x5E4630); g.fillArc(2, 2, 12, 10, 0, 360);
+        col(g, 0x8A6A44); g.fillArc(3, 3, 10, 8, 0, 360);
+        col(g, 0x6A4E32); g.fillArc(5, 5, 6, 4, 0, 360);
+        col(g, 0xA0804E); g.fillArc(7, 6, 2, 2, 0, 360);
+        return im;
+    }
+
+    private Image logTile(boolean left) {
+        Image im = fgrass(0);
+        Graphics g = im.getGraphics();
+        col(g, 0x4A3622); g.fillRect(left ? 3 : 0, 4, left ? 13 : 12, 9);
+        col(g, 0x6A4E32); g.fillRect(left ? 3 : 0, 4, left ? 13 : 12, 2);
+        col(g, 0x2A1E12); g.fillRect(left ? 3 : 0, 11, left ? 13 : 12, 2);
+        col(g, 0x38281A);
+        for (int x = left ? 6 : 2; x < (left ? 16 : 12); x += 3) g.fillRect(x, 6, 1, 5);
+        col(g, 0x3E6234); g.fillRect(left ? 8 : 5, 4, 4, 1);
+        if (left) {
+            col(g, 0x8A6A44); g.fillArc(1, 3, 7, 10, 0, 360);
+            col(g, 0x6A4E32); g.fillArc(3, 5, 3, 6, 0, 360);
+        } else {
+            col(g, 0x38281A); g.fillArc(9, 4, 5, 9, 0, 360);
+        }
+        return im;
+    }
+
+    private Image rockTile() {
+        Image im = fgrass(0);
+        Graphics g = im.getGraphics();
+        col(g, 0x1A1E1A); g.fillArc(2, 8, 12, 6, 0, 360);
+        col(g, 0x4E5250); g.fillArc(2, 4, 12, 9, 0, 360);
+        col(g, 0x7A7E7A); g.fillArc(4, 5, 5, 3, 0, 360);
+        col(g, 0x3A5A30); g.fillRect(4, 11, 3, 1);
+        return im;
+    }
+
+    private void boulderTiles() {
+        Image big = Image.createImage(32, 32);
+        Graphics g = big.getGraphics();
+        for (int ty = 0; ty < 2; ty++)
+            for (int tx = 0; tx < 2; tx++)
+                g.drawImage(fgrass((tx + ty) % 3), tx * 16, ty * 16, Graphics.TOP | Graphics.LEFT);
+        col(g, 0x151A15); g.fillArc(1, 19, 30, 12, 0, 360);
+        col(g, 0x444846); g.fillArc(1, 6, 30, 23, 0, 360);
+        col(g, 0x555A57); g.fillArc(0, 12, 15, 16, 0, 360);
+        col(g, 0x4E5350); g.fillArc(16, 8, 15, 18, 0, 360);
+        col(g, 0x7A7F7A); g.fillArc(6, 7, 12, 7, 0, 360);
+        col(g, 0x8A8F8A); g.fillArc(9, 8, 6, 3, 0, 360);
+        col(g, 0x2E322F); g.drawLine(14, 12, 17, 20); g.drawLine(17, 20, 14, 25); g.drawLine(22, 10, 25, 17);
+        col(g, 0x3A5A30); g.fillArc(3, 22, 7, 4, 0, 360); g.fillArc(20, 24, 6, 3, 0, 360);
+        int[] ids = {BOULDER_TL, BOULDER_TR, BOULDER_BL, BOULDER_BR};
+        for (int i = 0; i < 4; i++) {
+            Image t = tile();
+            t.getGraphics().drawImage(big, -(i % 2) * 16, -(i / 2) * 16, Graphics.TOP | Graphics.LEFT);
+            tiles[ids[i]] = t;
+        }
+    }
+
+    private Image flowerTile(int c) {
+        Image im = fgrass(0);
+        Graphics g = im.getGraphics();
+        int[][] pos = {{3, 4}, {9, 3}, {6, 9}, {12, 8}, {2, 12}, {10, 13}};
+        for (int i = 0; i < pos.length; i++) {
+            int x = pos[i][0], y = pos[i][1];
+            col(g, 0x2E5A2A); g.fillRect(x, y + 1, 1, 2);
+            col(g, c); g.fillRect(x - 1, y, 3, 1); g.fillRect(x, y - 1, 1, 3);
+            col(g, 0xE8D060); g.fillRect(x, y, 1, 1);
+        }
+        return im;
+    }
+
+    private Image mushroomTile() {
+        Image im = fgrass(1);
+        Graphics g = im.getGraphics();
+        col(g, 0xD8D0B8); g.fillRect(5, 9, 2, 4); g.fillRect(11, 12, 1, 2);
+        col(g, 0xA82A2A); g.fillArc(2, 5, 8, 6, 0, 360);
+        col(g, 0xE8E0D0); g.fillRect(4, 7, 1, 1); g.fillRect(7, 6, 1, 1);
+        col(g, 0x6A4A2E); g.fillArc(9, 10, 5, 3, 0, 360);
+        return im;
+    }
+
+    private Image fernTile() {
+        Image im = fgrass(0);
+        Graphics g = im.getGraphics();
+        col(g, 0x2E6A34);
+        g.drawLine(8, 14, 3, 6); g.drawLine(8, 14, 5, 3); g.drawLine(8, 14, 8, 2);
+        g.drawLine(8, 14, 11, 3); g.drawLine(8, 14, 13, 6);
+        col(g, 0x468A48);
+        g.drawLine(8, 14, 5, 8); g.drawLine(8, 14, 11, 8); g.drawLine(8, 14, 8, 6);
+        return im;
+    }
+
+    private Image pebbleTile() {
+        Image im = fgrass(0);
+        Graphics g = im.getGraphics();
+        col(g, 0x6A6E6A); g.fillArc(3, 5, 4, 3, 0, 360); g.fillArc(9, 9, 5, 3, 0, 360); g.fillArc(5, 11, 3, 2, 0, 360);
+        col(g, 0x8A8E8A); g.fillRect(4, 5, 1, 1); g.fillRect(10, 9, 1, 1);
+        return im;
+    }
+
+    private Image lilyTile() {
+        Image im = water();
+        Graphics g = im.getGraphics();
+        col(g, 0x2E5A30); g.fillArc(2, 3, 7, 5, 0, 360); g.fillArc(9, 9, 6, 4, 0, 360);
+        col(g, 0x4A8A44); g.drawArc(2, 3, 6, 4, 0, 360);
+        col(g, 0x1F4552); g.drawLine(5, 5, 9, 5);
+        col(g, 0xC080A0); g.fillRect(11, 10, 2, 2);
+        return im;
+    }
+
+    private Image cliffTile(int v) {
+        Image im = tile();
+        Graphics g = im.getGraphics();
+        sd = 200 + v * 13;
+        int base = (v == 0) ? 0x474B49 : 0x3E423F;
+        col(g, base); g.fillRect(0, 0, TS, TS);
+        col(g, a(base, 128)); g.fillRect(0, 0, TS, 1); g.fillRect(0, 7, TS, 1);
+        col(g, a(base, 66)); g.fillRect(0, 5, TS, 2); g.fillRect(0, 12, TS, 3);
+        col(g, a(base, 58)); g.drawLine(4, 8, 6, 12); g.drawLine(11, 2, 9, 6);
+        speck(g, a(base, 120), 8);
+        speck(g, 0x3A5A30, 5);
+        return im;
+    }
+
+    private Image waterfallTile() {
+        Image im = tile();
+        Graphics g = im.getGraphics();
+        col(g, 0x2A4A62); g.fillRect(0, 0, TS, TS);
+        col(g, 0x3E6A88); g.fillRect(1, 0, 3, TS); g.fillRect(8, 0, 3, TS);
+        col(g, 0xD0E0EC);
+        g.fillRect(3, 0, 1, 9); g.fillRect(6, 4, 1, 12); g.fillRect(9, 0, 1, 7); g.fillRect(12, 6, 1, 10); g.fillRect(1, 8, 1, 7);
+        col(g, 0x8AB0C8); g.fillRect(5, 0, 1, 5); g.fillRect(11, 2, 1, 5);
+        return im;
+    }
+
+    private Image foamTile() {
+        Image im = water();
+        Graphics g = im.getGraphics();
+        col(g, 0xC8DCE8); g.fillRect(1, 2, 3, 1); g.fillRect(7, 5, 4, 1); g.fillRect(3, 9, 5, 1); g.fillRect(11, 11, 3, 1);
+        col(g, 0x8AB0C8); g.fillRect(2, 6, 2, 1); g.fillRect(10, 2, 2, 1); g.fillRect(6, 13, 4, 1);
+        return im;
+    }
+
+    private Image bridgeTile(boolean horizontal) {
+        Image im = tile();
+        Graphics g = im.getGraphics();
+        col(g, 0x2A2018); g.fillRect(0, 0, TS, TS);
+        for (int i = 0; i < TS; i += 4) {
+            col(g, (i % 8 == 0) ? 0x6A5238 : 0x5E4830);
+            if (horizontal) g.fillRect(0, i, TS, 3); else g.fillRect(i, 0, 3, TS);
+            col(g, 0x8A7050);
+            if (horizontal) g.fillRect(0, i, TS, 1); else g.fillRect(i, 0, 1, TS);
+        }
+        col(g, 0x1A140E);
+        if (horizontal) { g.fillRect(2, 1, 1, 1); g.fillRect(13, 5, 1, 1); g.fillRect(2, 9, 1, 1); g.fillRect(13, 13, 1, 1); }
+        else { g.fillRect(1, 2, 1, 1); g.fillRect(5, 13, 1, 1); g.fillRect(9, 2, 1, 1); g.fillRect(13, 13, 1, 1); }
+        return im;
+    }
+
+    private Image caveTile() {
+        Image im = tile();
+        Graphics g = im.getGraphics();
+        col(g, 0x070A08); g.fillRect(0, 0, TS, TS);
+        col(g, 0x10140F); g.fillRect(0, 11, TS, 5);
         return im;
     }
 

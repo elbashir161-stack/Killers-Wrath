@@ -70,6 +70,7 @@ public class NpcManager {
 
     public void update(World w, Player k) {
         for (int i = 0; i < npcs.length; i++) npcs[i].update(this, w, k);
+        if (npcs.length == 0) return;
         tick++;
         Npc n = npcs[tick % npcs.length];
         if (n.state == Npc.NORMAL || n.state == Npc.DEAD) {
