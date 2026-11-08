@@ -202,7 +202,7 @@ public class NpcManager {
             Npc n = npcs[i];
             if (n.state != Npc.DEAD) continue;
             Image im = NpcSprites.dead[n.look][(n.x + n.y) & 1];
-            int sx = n.x - im.getWidth() / 2 - camX, sy = n.y - 17 - camY;
+            int sx = n.x - im.getWidth() / 2 - camX, sy = n.y - (NpcSprites.W - 4) - camY;
             if (sx > sw || sy > sh || sx + im.getWidth() < 0 || sy + im.getHeight() < 0) continue;
             g.drawImage(im, sx, sy, Graphics.TOP | Graphics.LEFT);
         }

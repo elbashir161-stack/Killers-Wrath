@@ -12,6 +12,7 @@ public class WorldCanvas extends GameCanvas implements Runnable {
     private final Player player;
     private final VehicleManager vehicles;
     private final NpcManager npcs;
+    private final SkidMarks skids = new SkidMarks();
     private final Image mini;
     private final Font font = Font.getFont(Font.FACE_SYSTEM, Font.STYLE_BOLD, Font.SIZE_SMALL);
     private Thread thread;
@@ -189,9 +190,11 @@ public class WorldCanvas extends GameCanvas implements Runnable {
                     driving.drive(keys, world, vehicles);
                     player.x = driving.x;
                     player.y = driving.y;
+                    skids.update(driving, world);
                 } else {
                     player.update(keys, world);
                 }
+                skids.age();
                 npcs.driven = driving;
                 npcs.playerOnFoot = (driving == null);
                 vehicles.update(player);
@@ -315,6 +318,7 @@ public class WorldCanvas extends GameCanvas implements Runnable {
         g.setColor(0x000000);
         g.fillRect(0, 0, sw, sh);
         world.draw(g, camX, camY, sw, sh);
+        skids.draw(g, camX, camY, sw, sh);
         npcs.drawGround(g, camX, camY, sw, sh);
 
         // collect everything that stands up and draw it back to front

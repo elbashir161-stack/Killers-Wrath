@@ -7,14 +7,10 @@ public class NpcSprites {
     public static Image[][][] looks; // [look][dir][frame]
     public static Image[][] dead;    // [look][0 head right / 1 head left], 30 x 20
 
-    private static final int[] SKIN = {0xFFE8B890, 0xFFC98E62, 0xFF8A5A3A, 0xFFF1C9A5,
-            0xFFB57A52, 0xFF6B4430, 0xFFEBC09A, 0xFFD6A072};
-    private static final int[] HAIR = {0xFF2A1A10, 0xFF6B3E1E, 0xFFD8B050, 0xFF1A1A1A,
-            0xFFB0B0B0, 0xFF8A2E16, 0xFF3A2A1A, 0xFF222222};
-    private static final int[] SHIRT = {0xFFC0392B, 0xFF2E6FB0, 0xFF3A9A4A, 0xFFE0B020,
-            0xFFEDEDED, 0xFFE07020, 0xFF8A4AA8, 0xFF1AA0A0};
-    private static final int[] PANTS = {0xFF2B4A7A, 0xFF8A7A55, 0xFF2A2A30, 0xFF5A5A62,
-            0xFF3A3A8A, 0xFF6A4A2A, 0xFF1F3A5A, 0xFF7A3A3A};
+    private static final int[] SKIN = {0xFFD9A982, 0xFFB87F58, 0xFF7E5236, 0xFFE4BC98, 0xFFA66E48, 0xFF5E3A28, 0xFFDDB38C, 0xFFC4916A};
+    private static final int[] HAIR = {0xFF22160E, 0xFF5A3418, 0xFFB09048, 0xFF161616, 0xFF9A9A98, 0xFF6E2814, 0xFF2E2216, 0xFF1E1E1E};
+    private static final int[] SHIRT = {0xFF8E3A30, 0xFF3A5F88, 0xFF4A7050, 0xFFA88A38, 0xFFC4C4B8, 0xFFA8642E, 0xFF6A4A7E, 0xFF2F7A7A};
+    private static final int[] PANTS = {0xFF24405E, 0xFF6E6248, 0xFF222228, 0xFF4A4A52, 0xFF30306E, 0xFF54402A, 0xFF1C3250, 0xFF5E3232};
     private static final boolean[] FEMALE = {false, true, false, true, false, true, false, true};
 
     public static void init() {

@@ -12,8 +12,8 @@ public class TreeArt {
     /** 0 = oak (big), 1 = maple, 2 = pine, 3 = young tree. */
     public static Image tree(int variant) {
         seed = 777 + variant * 131;
-        int[] oak = {0xFF1E5A22, 0xFF2F7D32, 0xFF4CA043, 0xFF7BC46A};
-        int[] maple = {0xFF3B6E22, 0xFF5C9E36, 0xFF86BF4A, 0xFFB5DB6A};
+        int[] oak = {0xFF14381A, 0xFF22522A, 0xFF346C3A, 0xFF4E8648};
+        int[] maple = {0xFF2A4420, 0xFF3F6228, 0xFF58803A, 0xFF789E50};
         switch (variant) {
             case 0: return broad(104, 116, 52, 44, 42, 30, 15, 14, 8, 64, oak);
             case 1: return broad(88, 100, 44, 38, 34, 25, 12, 12, 7, 56, maple);
@@ -61,7 +61,7 @@ public class TreeArt {
         int[] tops = {4, 26, 46, 64, 82};
         int[] bots = {32, 52, 70, 88, 106};
         int[] hw = {10, 16, 21, 26, 30};
-        int dark = 0xFF14452A, mid = 0xFF1E6B3A, light = 0xFF2E8B4A;
+        int dark = 0xFF0C2A1A, mid = 0xFF14432A, light = 0xFF1F5C38;
         for (int t = 0; t < 5; t++) {
             for (int y = tops[t]; y < bots[t]; y++) {
                 int half = hw[t] * (y - tops[t] + 3) / (bots[t] - tops[t] + 3);
@@ -114,7 +114,7 @@ public class TreeArt {
                 else if (s > -45) c = pal[2];
                 else c = pal[3];
                 if (((x * 7 + y * 13) & 7) == 0 && c != pal[0]) c = (c == pal[1]) ? pal[2] : pal[3];
-                if (y > darkY) c = SpriteKit.adj(c, 82);
+                if (y > darkY) c = Gfx.adj(c, 82);
                 p[y * w + x] = c;
             }
         }

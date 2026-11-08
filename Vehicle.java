@@ -11,6 +11,8 @@ public class Vehicle {
     public int type, color, h, x, y, sp;
     public boolean driven;
     private int accX, accY, steerT;
+    public boolean skidding, skidValid;   // laying tyre tracks right now / tracks continue from last tick
+    public int lastLX, lastLY, lastRX, lastRY;
 
     public Vehicle(int type, int color, int h, int x, int y) {
         this.type = type;
@@ -43,6 +45,7 @@ public class Vehicle {
         boolean down = (keys & GameCanvas.DOWN_PRESSED) != 0;
         boolean left = (keys & GameCanvas.LEFT_PRESSED) != 0;
         boolean right = (keys & GameCanvas.RIGHT_PRESSED) != 0;
+        skidding = (down && sp > 56) || ((left || right) && (sp > 96 || sp < -96));
         int max = VehicleKit.MAXSP[type] * 16;
         int rev = 3 * 16;
         int acc = VehicleKit.ACC[type];

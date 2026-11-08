@@ -1,6 +1,9 @@
 import javax.microedition.lcdui.Image;
 
-/** Vehicles at true scale (car = 4.5m x 1.8m), drawn top-down in 16 headings. 0 = east, 4 = south, 8 = west, 12 = north. */
+/**
+ * Vehicles at true scale (car = 4.5m x 1.8m) in the old top-down GTA view: you see the roof, a little of the
+ * side glass, the bonnet, and the tyres poking out at the corners. 16 headings: 0 = east, 4 = south, 8 = west, 12 = north.
+ */
 public class VehicleKit {
     public static final int SEDAN = 0, SPORTS = 1, PICKUP = 2, MOTO = 3, MOTO_RIDER = 4;
     public static final int[] LEN = {72, 70, 80, 36, 36};
@@ -18,9 +21,12 @@ public class VehicleKit {
         }
     }
 
-    private static final int[] CAR_COLORS = {0xFFB52A2A, 0xFF2B5DA8, 0xFFDADADA, 0xFF2A2A2E, 0xFF3C8A4A, 0xFF9AA0A8};
-    private static final int[] MOTO_COLORS = {0xFFB52A2A, 0xFF2A2A2E, 0xFF2B5DA8};
-    private static final int OUTLINE = 0xFF0C0806;
+    private static final int M = 3;   // empty margin around the body (room for tyres, shadow, outline)
+    private static final int[] CAR_COLORS = {0xFFC8C8BC, 0xFF34527A, 0xFF6A2A2A, 0xFF2E4A36, 0xFF7A7E80, 0xFF9A5A2A};
+    private static final int[] MOTO_COLORS = {0xFF8A2A2A, 0xFF2A2A2E, 0xFF2B4A6A};
+    private static final int OUTLINE = 0xFF0A0A0B;
+    private static final int SHADOW = 0x55000000;
+    private static final int TIRE = 0xFF0C0C0E;
     private static final Image[][][] cache = new Image[5][6][16];
 
     public static int colorCount(int type) { return (type >= MOTO) ? 3 : 6; }
@@ -37,7 +43,7 @@ public class VehicleKit {
 
     private static Image make(int type, int color, int h) {
         int L = LEN[type], W = WID[type];
-        int s = L + 2, t = W + 2;
+        int s = L + 2 * M, t = W + 2 * M;
         int body = (type >= MOTO) ? MOTO_COLORS[color] : CAR_COLORS[color];
         int[] r = new int[s * t];
         if (type == MOTO) moto(r, s, L, W, body);
@@ -61,8 +67,7 @@ public class VehicleKit {
                 for (int x = 0; x < t; x++) u[y * t + x] = d[(s - 1 - y) * t + x];
             return Image.createRGBImage(u, t, s, true);
         }
-        // in-between headings: rotate the east-facing picture
-        int D = (int) Math.sqrt(s * s + t * t) + 2;
+        int D = (int) Math.sqrt(s * s + t * t) + 2;         // in-between headings: rotate the east-facing picture
         int c = COS[h], sn = SIN[h];
         int[] o = new int[D * D];
         for (int y = 0; y < D; y++) {
@@ -82,52 +87,71 @@ public class VehicleKit {
     // ---------------- art (facing east) ----------------
 
     private static void car(int[] p, int s, int L, int W, int type, int body) {
-        int tire = 0xFF111114, glass = 0xFF35566E, glassHi = 0xFF6F9AB8;
-        rrect(p, s, 0, 0, L, W, 6, body);
-        tint(p, s, L, 0, 1, 125);
-        tint(p, s, L, W - 3, W - 1, 72);
-        int rwx = 11, fwx = L - 22;
-        rect(p, s, rwx, 0, 9, 2, tire); rect(p, s, rwx, W - 2, 9, 2, tire);
-        rect(p, s, fwx, 0, 9, 2, tire); rect(p, s, fwx, W - 2, 9, 2, tire);
+        int glass = 0xFF2A4452, glassHi = 0xFF5E8294, glassSide = 0xFF1E3340;
+        int dark = Gfx.adj(body, 66), light = Gfx.adj(body, 128);
+        rrect(p, s, 2, 3, L - 2, W - 2, 6, SHADOW);                 // shadow on the road
+        int rwx = (type == PICKUP) ? 11 : 10, fwx = L - 22;
+        wheel(p, s, rwx, -2, 10); wheel(p, s, rwx, W - 3, 10);      // tyres: visible at the sides
+        wheel(p, s, fwx, -2, 10); wheel(p, s, fwx, W - 3, 10);
+        rrect(p, s, 0, 0, L, W, 6, body);                           // body
+        tint(p, s, L, 0, 1, 128);                                   // lit top edge
+        tint(p, s, L, W - 4, W - 1, 66);                            // side panel in shade
+        rect(p, s, L - 2, 3, 2, W - 6, 0xFF2E2E34);                 // bumpers
+        rect(p, s, 0, 3, 2, W - 6, 0xFF2E2E34);
         int rgx, rgw, roofx, roofw, wsx, wsw;
         if (type == SEDAN) { rgx = 17; rgw = 5; roofx = 22; roofw = 21; wsx = 43; wsw = 8; }
         else if (type == SPORTS) { rgx = 22; rgw = 5; roofx = 27; roofw = 12; wsx = 39; wsw = 9; }
         else { rgx = 37; rgw = 3; roofx = 40; roofw = 12; wsx = 52; wsw = 8; }
-        int gh = W - 8;
-        rect(p, s, rgx, 4, rgw, gh, glass);
-        rect(p, s, roofx, 4, roofw, gh, SpriteKit.adj(body, 114));
-        rect(p, s, roofx, W - 6, roofw, 2, SpriteKit.adj(body, 80));
-        rect(p, s, wsx, 4, wsw, gh, glass);
-        rect(p, s, wsx + 1, 5, 1, gh - 2, glassHi);
-        int hx = wsx + wsw + 3;
-        rect(p, s, hx, W / 2, L - hx - 5, 1, SpriteKit.adj(body, 86));
+        rect(p, s, roofx - 1, 2, roofw + 2, W - 4, glassSide);      // side glass seen under the roof
+        rect(p, s, roofx, 4, roofw, W - 8, Gfx.adj(body, 112));   // roof
+        rect(p, s, roofx, 4, roofw, 1, light);
+        rect(p, s, rgx, 3, rgw, W - 6, glass);                      // rear window
+        rect(p, s, wsx, 3, wsw, W - 6, glass);                      // windscreen, wider than the roof
+        rect(p, s, wsx + 1, 4, 1, W - 8, glassHi);
+        int hx = wsx + wsw + 2;
+        rect(p, s, hx, W / 2, L - hx - 4, 1, dark);                 // bonnet crease
+        rect(p, s, wsx - 1, -1, 3, 2, dark);                        // mirrors
+        rect(p, s, wsx - 1, W - 1, 3, 2, dark);
         if (type == SPORTS) {
-            rect(p, s, 4, W / 2 - 1, L - 8, 2, 0xFFEFEFEF);
-            rect(p, s, 2, 3, 4, W - 6, SpriteKit.adj(body, 60));
+            rect(p, s, 4, W / 2 - 1, L - 8, 2, 0xFFD8D8CC);         // stripe
+            rect(p, s, 1, 3, 4, W - 6, dark);                       // spoiler
         }
         if (type == PICKUP) {
-            rect(p, s, 5, 4, 31, gh, 0xFF3E3E44);
-            for (int x = 8; x < 35; x += 5) rect(p, s, x, 4, 1, gh, 0xFF55555C);
-            rect(p, s, 2, 5, 3, W - 10, SpriteKit.adj(body, 78));
+            rect(p, s, 4, 3, 33, W - 6, 0xFF2C2C32);                // load bed
+            rect(p, s, 4, 3, 33, 1, 0xFF5A5A60);                    // bed rails
+            rect(p, s, 4, W - 4, 33, 1, 0xFF5A5A60);
+            for (int x = 8; x < 36; x += 5) rect(p, s, x, 4, 1, W - 8, 0xFF3E3E46);
         }
-        rect(p, s, L - 3, 3, 3, 4, 0xFFFFF2B0);
-        rect(p, s, L - 3, W - 7, 3, 4, 0xFFFFF2B0);
-        rect(p, s, 0, 3, 2, 4, 0xFFC01818);
-        rect(p, s, 0, W - 7, 2, 4, 0xFFC01818);
+        rect(p, s, L - 4, 3, 3, 4, 0xFFE8E0A8);                     // headlights
+        rect(p, s, L - 4, W - 7, 3, 4, 0xFFE8E0A8);
+        rect(p, s, 0, 3, 2, 4, 0xFFB01818);                         // tail lights
+        rect(p, s, 0, W - 7, 2, 4, 0xFFB01818);
+        for (int y = 2; y < W - 2; y++)                             // grime
+            for (int x = 3; x < L - 3; x++)
+                if (((x * 7 + y * 13) % 29) == 0) put(p, s, x, y, dark);
+    }
+
+    private static void wheel(int[] p, int s, int x, int y, int len) {
+        rect(p, s, x, y, len, 5, TIRE);
+        rect(p, s, x + 1, y + 2, len - 2, 1, 0xFF26262A);
     }
 
     private static void moto(int[] p, int s, int L, int W, int body) {
-        int tire = 0xFF0E0E10;
-        rrect(p, s, 0, 6, 9, 4, 2, tire);
-        rrect(p, s, 27, 6, 9, 4, 2, tire);
-        rect(p, s, 9, 7, 18, 2, 0xFF3A3A40);
-        rrect(p, s, 10, 3, 16, 10, 4, body);
-        tint(p, s, L, 3, 4, 125);
-        rect(p, s, 12, 5, 6, 6, 0xFF1A1A1E);
-        rect(p, s, 19, 6, 5, 4, 0xFF55555C);
-        rect(p, s, 25, 1, 2, 14, 0xFF2A2A30);
-        rect(p, s, 34, 7, 2, 2, 0xFFFFF2B0);
-        rect(p, s, 0, 7, 2, 2, 0xFFC01818);
+        rrect(p, s, 1, 4, L - 2, 9, 4, SHADOW);
+        rrect(p, s, 0, 5, 10, 5, 2, TIRE);                           // rear tyre
+        rrect(p, s, 26, 5, 10, 5, 2, TIRE);                          // front tyre
+        rect(p, s, 3, 7, 4, 1, 0xFF2C2C30);
+        rect(p, s, 29, 7, 4, 1, 0xFF2C2C30);
+        rect(p, s, 8, 7, 20, 2, 0xFF3A3A40);                         // frame
+        rrect(p, s, 10, 3, 16, 10, 4, body);                         // tank
+        tint(p, s, L, 3, 4, 128);
+        tint(p, s, L, 11, 12, 66);
+        rect(p, s, 12, 5, 6, 6, 0xFF1A1A1E);                         // seat
+        rect(p, s, 19, 6, 5, 4, 0xFF55555C);                         // engine
+        rect(p, s, 1, 11, 9, 1, 0xFF6A6A70);                         // exhaust
+        rect(p, s, 25, 1, 2, 14, 0xFF2A2A30);                        // handlebars
+        rect(p, s, 34, 7, 2, 2, 0xFFE8E0A8);
+        rect(p, s, 0, 7, 2, 2, 0xFFB01818);
     }
 
     /** Killer sitting on the bike, seen from above: legs along the tank, torso, arms to the bars, bald head. */
@@ -142,13 +166,13 @@ public class VehicleKit {
         rect(p, s, 25, 3, 2, 3, skin);
         rect(p, s, 25, 10, 2, 3, skin);
         disc(p, s, 17, 8, 3, skin);
-        rect(p, s, 16, 6, 2, 1, SpriteKit.adj(skin, 135));
+        rect(p, s, 16, 6, 2, 1, Gfx.adj(skin, 135));
     }
 
-    // ---------------- helpers (all coordinates have a 1px margin for the outline) ----------------
+    // ---------------- helpers (coordinates are relative to the body; M pixels of margin around it) ----------------
 
     private static void put(int[] p, int s, int x, int y, int c) {
-        int ix = x + 1, iy = y + 1;
+        int ix = x + M, iy = y + M;
         if (ix < 0 || iy < 0 || ix >= s) return;
         int idx = iy * s + ix;
         if (idx < p.length) p[idx] = c;
@@ -179,8 +203,8 @@ public class VehicleKit {
     private static void tint(int[] p, int s, int L, int y0, int y1, int pct) {
         for (int y = y0; y <= y1; y++) {
             for (int x = 0; x < L; x++) {
-                int idx = (y + 1) * s + (x + 1);
-                if (idx < p.length && p[idx] != 0) p[idx] = SpriteKit.adj(p[idx], pct);
+                int idx = (y + M) * s + (x + M);
+                if (idx < p.length && (p[idx] >>> 24) == 0xFF) p[idx] = Gfx.adj(p[idx], pct);
             }
         }
     }
@@ -190,9 +214,10 @@ public class VehicleKit {
         for (int y = 0; y < h; y++) {
             for (int x = 0; x < s; x++) {
                 int i = y * s + x;
-                if (p[i] != 0) q[i] = p[i];
-                else if ((x > 0 && p[i - 1] != 0) || (x < s - 1 && p[i + 1] != 0)
-                        || (y > 0 && p[i - s] != 0) || (y < h - 1 && p[i + s] != 0)) q[i] = OUTLINE;
+                if (p[i] != 0) { q[i] = p[i]; continue; }
+                boolean n = (x > 0 && (p[i - 1] >>> 24) == 0xFF) || (x < s - 1 && (p[i + 1] >>> 24) == 0xFF)
+                        || (y > 0 && (p[i - s] >>> 24) == 0xFF) || (y < h - 1 && (p[i + s] >>> 24) == 0xFF);
+                if (n) q[i] = OUTLINE;
             }
         }
         return q;

@@ -60,7 +60,7 @@ public class Player {
     }
 
     public void draw(Graphics g, int camX, int camY) {
-        g.drawImage(Sprites.killer[dir][frame], x - Sprites.W / 2 - camX, y - 28 - camY,
+        g.drawImage(Sprites.killer[dir][frame], x - Sprites.W / 2 - camX, y - (Sprites.H - 2) - camY,
                 Graphics.TOP | Graphics.LEFT);
     }
 }
