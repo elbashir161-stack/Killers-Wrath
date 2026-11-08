@@ -48,7 +48,7 @@ public class WorldCanvas extends GameCanvas implements Runnable {
         setFullScreenMode(true);
         Sprites.init();
         NpcSprites.init();
-        world = new World();
+        world = new World(0);
         mini = world.buildMinimap();
         int sx = 380 * World.TS + 8, sy = 120 * World.TS + 8;   // pavement beside the central avenue
         boolean starters = true;
