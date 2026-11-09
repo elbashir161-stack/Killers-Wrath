@@ -11,6 +11,12 @@ public class Vehicle {
     public int type, color, h, x, y, sp;
     public boolean driven;
     private int accX, accY, steerT;
+
+    // ---- traffic (driven by the computer) ----
+    public boolean ai;
+    public int occupants;          // people inside: 0 = empty and can be entered, more = locked
+    public boolean recycle;        // a traffic car that should be moved somewhere else
+    private int aiSpeed = 44, junction = -1, turnWant, turnCoord, rotLeft, rotDir, rotT, waitT;
     public boolean skidding, skidValid;   // laying tyre tracks right now / tracks continue from last tick
     public int lastLX, lastLY, lastRX, lastRY;
 
@@ -73,6 +79,113 @@ public class Vehicle {
             steerT = 0;
         }
         move(w, vm);
+    }
+
+    public void startAI(int speed, int people) {
+        ai = true;
+        aiSpeed = speed;
+        sp = speed;
+        occupants = people;
+        junction = -1;
+        turnWant = 0;
+        rotLeft = 0;
+        waitT = 0;
+        recycle = false;
+        driven = false;
+    }
+
+    /** One tick of computer driving: keep to the lane, stop for anything ahead, sometimes turn at a junction. */
+    public void aiDrive(World w, VehicleManager vm, NpcManager npcs, Player pl, boolean plOnFoot) {
+        if (rotLeft > 0) {                                   // turning: swing the nose round, a step every 2 ticks
+            if (--rotT <= 0) {
+                h = (h + rotDir) & 15;
+                rotLeft--;
+                rotT = 2;
+                if (rotLeft == 0) snapToLane();
+            }
+            if (sp > 24) sp -= 6;
+            move(w, vm);
+            return;
+        }
+        if (blockedAhead(w, vm, npcs, pl, plOnFoot)) {
+            sp -= 24;
+            if (sp < 0) sp = 0;
+            if (++waitT > 500) recycle = true;
+        } else {
+            waitT = 0;
+            if (sp < aiSpeed) sp += 3; else if (sp > aiSpeed) sp -= 3;
+        }
+        junctionLogic();
+        move(w, vm);
+        if (x < 40 || y < 40 || x > w.mw * World.TS - 40 || y > w.mh * World.TS - 40) recycle = true;
+    }
+
+    private boolean blockedAhead(World w, VehicleManager vm, NpcManager npcs, Player pl, boolean plOnFoot) {
+        int c = VehicleKit.COS[h], s = VehicleKit.SIN[h];
+        int look = len() / 2 + 16 + ((sp > 0 ? sp : 0) >> 4) * 10;
+        int w2 = wid() / 2;
+        for (int d = len() / 2 + 2; d <= look; d += 8) {
+            for (int off = -w2; off <= w2; off += w2) {
+                int px = x + (d * c - off * s) / 256, py = y + (d * s + off * c) / 256;
+                if (vm.hitOther(px, py, this) || w.solidTerrain(px, py)) return true;
+                if (npcs.personAtPoint(px, py)) return true;
+                if (plOnFoot && Math.abs(px - pl.x) < 8 && py > pl.y - 14 && py < pl.y + 2) return true;
+            }
+        }
+        return false;
+    }
+
+    private void junctionLogic() {
+        int tx = x / World.TS, ty = y / World.TS;
+        boolean horiz = (h == 0 || h == 8);
+        int j = horiz ? World.vRoadAt(tx, ty) : World.hRoadAt(ty);
+        if (j < 0) {
+            junction = -1;
+            return;
+        }
+        if (junction != j) {                                  // just entered a junction: decide
+            junction = j;
+            int r = NpcManager.rnd(100);
+            turnWant = (r < 24) ? 1 : (r < 38 ? -1 : 0);      // 1 = right, -1 = left
+            if (!horiz && h == 4 && j == 4) turnWant = (r < 50) ? 1 : -1;   // the road ends at the highway
+            if (turnWant != 0) {
+                if (h == 0) {
+                    if (turnWant > 0) turnCoord = World.vLaneX(j, true);
+                    else if (j < 5) turnCoord = World.vLaneX(j, false); else turnWant = 0;
+                } else if (h == 8) {
+                    if (turnWant > 0) { if (j < 5) turnCoord = World.vLaneX(j, false); else turnWant = 0; }
+                    else turnCoord = World.vLaneX(j, true);
+                } else if (h == 4) {
+                    turnCoord = (turnWant > 0) ? World.hLaneY(j, false) : World.hLaneY(j, true);
+                } else {
+                    turnCoord = (turnWant > 0) ? World.hLaneY(j, true) : World.hLaneY(j, false);
+                }
+            }
+        }
+        if (turnWant != 0 && reached(turnCoord)) {
+            rotLeft = 4;
+            rotDir = turnWant;
+            rotT = 2;
+            turnWant = 0;
+        }
+    }
+
+    private boolean reached(int coord) {
+        if (h == 0) return x >= coord;
+        if (h == 8) return x <= coord;
+        if (h == 4) return y >= coord;
+        return y <= coord;
+    }
+
+    private void snapToLane() {
+        int tx = x / World.TS, ty = y / World.TS;
+        if (h == 0 || h == 8) {
+            int i = World.hRoadAt(ty);
+            if (i >= 0) y = World.hLaneY(i, h == 0);
+        } else {
+            int j = World.vRoadAt(tx, ty);
+            if (j >= 0) x = World.vLaneX(j, h == 4);
+        }
     }
 
     private void move(World w, VehicleManager vm) {

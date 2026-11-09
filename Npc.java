@@ -15,6 +15,7 @@ public class Npc {
     private boolean heardOnly;
     private String bubble;
     public int hp = 100;
+    public boolean kid = false;      // a child: same person, 70% size, bright shirt
     private NpcManager mgr;
 
     public Npc(int x, int y, int look, int personality) {
@@ -394,6 +395,11 @@ public class Npc {
 
     public void draw(Graphics g, int camX, int camY) {
         if (state == INSIDE || state == DEAD) return;
+        if (kid) {
+            g.drawImage(NpcSprites.kids[look][dir][frame], x - NpcSprites.KW / 2 - camX, y - NpcSprites.KFEET - camY,
+                    Graphics.TOP | Graphics.LEFT);
+            return;
+        }
         g.drawImage(NpcSprites.looks[look][dir][frame], x - NpcSprites.W / 2 - camX, y - (NpcSprites.H - 2) - camY,
                 Graphics.TOP | Graphics.LEFT);
     }
@@ -404,7 +410,7 @@ public class Npc {
         int w = f.stringWidth(bubble) + 6;
         int h = f.getHeight() + 2;
         int bx = sx - w / 2;
-        int by = sy - (NpcSprites.H + 3) - h;
+        int by = sy - (kid ? NpcSprites.KFEET + 6 : NpcSprites.H + 3) - h;
         g.setColor(0xFFFFFF);
         g.fillRoundRect(bx, by, w, h, 6, 6);
         g.setColor(0x000000);

@@ -47,6 +47,7 @@ public class NpcManager {
             int pers = (r < 10) ? Npc.P_BRAVE : (r < 25) ? Npc.P_COWARD : (r < 40) ? Npc.P_FROZEN
                     : (r < 55) ? Npc.P_PANIC : Npc.P_NORMAL;
             npcs[i] = new Npc(px, py, rnd(NpcSprites.LOOKS), pers);
+            if (i % 6 == 2) npcs[i].kid = true;          // some of the pedestrians are children
         }
     }
 
@@ -98,6 +99,16 @@ public class NpcManager {
         if (self != null && playerOnFoot) {
             if (Math.abs(nx - player.x) < 8 && Math.abs(ny - player.y) < 5
                     && !(Math.abs(cx - player.x) < 8 && Math.abs(cy - player.y) < 5)) return true;
+        }
+        return false;
+    }
+
+    /** Is a standing person at this exact point? (traffic uses it to stop in front of people) */
+    public boolean personAtPoint(int px, int py) {
+        for (int i = 0; i < npcs.length; i++) {
+            Npc n = npcs[i];
+            if (n.state == Npc.INSIDE || n.state == Npc.DEAD) continue;
+            if (Math.abs(px - n.x) < 8 && py > n.y - 14 && py < n.y + 2) return true;
         }
         return false;
     }
@@ -202,8 +213,8 @@ public class NpcManager {
         for (int i = 0; i < npcs.length; i++) {
             Npc n = npcs[i];
             if (n.state != Npc.DEAD) continue;
-            Image im = NpcSprites.dead[n.look][(n.x + n.y) & 1];
-            int sx = n.x - im.getWidth() / 2 - camX, sy = n.y - (NpcSprites.W - 4) - camY;
+            Image im = n.kid ? NpcSprites.deadKid[n.look][(n.x + n.y) & 1] : NpcSprites.dead[n.look][(n.x + n.y) & 1];
+            int sx = n.x - im.getWidth() / 2 - camX, sy = n.y - (n.kid ? NpcSprites.KW - 3 : NpcSprites.W - 4) - camY;
             if (sx > sw || sy > sh || sx + im.getWidth() < 0 || sy + im.getHeight() < 0) continue;
             g.drawImage(im, sx, sy, Graphics.TOP | Graphics.LEFT);
         }

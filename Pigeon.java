@@ -1,84 +1,87 @@
 import javax.microedition.lcdui.Graphics;
+import javax.microedition.lcdui.Image;
 
-/** Pigeons: peck on ground, fly away if you get close, ignore you if perched high up. */
+/** One pigeon: pecks and hops on the pavement, flies off when Killer or a car gets close. */
 public class Pigeon {
-    public static final int GROUND = 0, FLYING = 1, PERCHED = 2;
+    public int x, y;          // position on the ground (feet)
+    public int z = 0;         // height above the ground while flying
+    public boolean flying = false;
+    public boolean faceRight = true;
+    private int fvx, fvy, flyT, peckT, walkT, wdx, wdy, flap;
 
-    public int x, y;
-    public int state = GROUND;
-    public int tx, ty;
-    public int flap = 0;
-    public int peck = 0;
-    public int dir = 1;
-    public int wait = 0;
-
-    public Pigeon(int x, int y, int state) {
+    public Pigeon(int x, int y) {
         this.x = x;
         this.y = y;
-        this.state = state;
+        peckT = NpcManager.rnd(60);
     }
 
-    public void update(World world, int px, int py, int rnd) {
-        if (state == PERCHED) {
-            peck++;
-            return;
+    public void update(PigeonManager m, World w, Player k, Vehicle driven) {
+        int dx = x - k.x, dy = y - k.y;
+        int d2 = dx * dx + dy * dy;
+        boolean scared = d2 < 70 * 70;
+        if (!scared && driven != null) {
+            int vx = x - driven.x, vy = y - driven.y;
+            int sp = driven.sp < 0 ? -driven.sp : driven.sp;
+            if (sp > 16 && vx * vx + vy * vy < 110 * 110) scared = true;
         }
-        if (state == GROUND) {
-            peck++;
-            if (peck % 60 == 0) {
-                x += (rnd % 3) - 1;
-                if (rnd % 2 == 0) dir = -dir;
+        if (!flying) {
+            if (scared) {                                       // take off, away from the danger
+                flying = true;
+                int ax = dx, ay = dy;
+                if (driven != null) { ax = x - driven.x; ay = y - driven.y; }
+                fvx = (ax > 0 ? 3 : ax < 0 ? -3 : 2 - NpcManager.rnd(5)) + NpcManager.rnd(3) - 1;
+                fvy = (ay > 0 ? 2 : ay < 0 ? -2 : 0) + NpcManager.rnd(3) - 1;
+                faceRight = fvx >= 0;
+                flyT = 80 + NpcManager.rnd(60);
+                z = 0;
+                return;
             }
-            int dx = x - px, dy = y - py;
-            int dist = (dx < 0 ? -dx : dx) + (dy < 0 ? -dy : dy);
-            if (dist < 48) {
-                state = FLYING;
-                flap = 0;
-                int ax = (dx >= 0 ? 1 : -1) * (80 + (rnd % 70));
-                int ay = (dy >= 0 ? 1 : -1) * (40 + (rnd % 60));
-                tx = x + ax;
-                ty = y + ay - 20;
-                if (tx < 0) tx = 0;
-                if (ty < 0) ty = 0;
-                if (tx > world.mw * World.TS) tx = world.mw * World.TS;
-                if (ty > world.mh * World.TS) ty = world.mh * World.TS;
+            peckT--;
+            if (peckT < 0) peckT = 40 + NpcManager.rnd(60);
+            if (walkT > 0) {                                    // a few quick steps
+                walkT--;
+                int nx = x + wdx, ny = y + wdy;
+                if (!w.solidAt(nx, ny) && m.goodGround(nx, ny)) { x = nx; y = ny; }
+                else walkT = 0;
+            } else if (NpcManager.rnd(120) == 0) {
+                walkT = 8 + NpcManager.rnd(14);
+                wdx = NpcManager.rnd(3) - 1;
+                wdy = NpcManager.rnd(3) - 1;
+                if (wdx != 0) faceRight = wdx > 0;
             }
-        } else if (state == FLYING) {
+        } else {
+            x += fvx;
+            y += fvy;
+            if (z < 34) z += 2;
             flap++;
-            int dx = tx - x, dy = ty - y;
-            if (dx > 0) { x += 4; dir = 1; }
-            else if (dx < 0) { x -= 4; dir = -1; }
-            if (dy > 0) y += 3;
-            else if (dy < 0) y -= 3;
-            if ((dx < 0 ? -dx : dx) < 5 && (dy < 0 ? -dy : dy) < 5) {
-                state = GROUND;
-                peck = 0;
+            flyT--;
+            if (flyT <= 0) {
+                if (m.goodGround(x, y) && !w.solidAt(x, y)) { flying = false; z = 0; peckT = 30; }
+                else flyT = 25;
             }
+            if (d2 > 700 * 700) m.place(this, k);                // far away: reuse it near Killer
         }
+    }
+
+    /** Frame to draw: 0 stand, 1 peck, 2 step, 3 wings up, 4 wings down. */
+    public int frame() {
+        if (flying) return (flap / 3) % 2 == 0 ? 3 : 4;
+        if (walkT > 0) return ((x + y) & 2) == 0 ? 0 : 2;
+        return peckT < 12 ? 1 : 0;
+    }
+
+    public void reset(int nx, int ny) {
+        x = nx;
+        y = ny;
+        z = 0;
+        flying = false;
+        walkT = 0;
+        peckT = NpcManager.rnd(60);
     }
 
     public void draw(Graphics g, int camX, int camY) {
-        int sx = x - camX, sy = y - camY;
-        g.setColor(0x8A8A92);
-        if (state == FLYING) {
-            int w = (flap % 10 < 5) ? 6 : 2;
-            g.fillRect(sx - 5, sy - w, 10, 3);
-            g.fillRect(sx - 2, sy, 4, 3);
-            g.setColor(0x2A2A2E);
-            g.fillRect(sx + dir * 3, sy - 2, 2, 2);
-        } else if (state == PERCHED) {
-            g.fillRect(sx - 3, sy - 4, 6, 4);
-            g.setColor(0x2A2A2E);
-            g.fillRect(sx + dir * 2, sy - 6, 2, 2);
-            g.setColor(0x5A5A62);
-            g.fillRect(sx - dir * 4, sy - 3, 3, 2);
-        } else {
-            int headY = (peck % 40 < 8) ? 2 : 0;
-            g.fillRect(sx - 3, sy - 2, 6, 3);
-            g.setColor(0x2A2A2E);
-            g.fillRect(sx + dir * 3, sy - 3 + headY, 2, 2);
-            g.setColor(0x3A6A3A);
-            g.fillRect(sx + dir * 1, sy - 2, 2, 2);
-        }
+        Image im = PigeonManager.sprite(frame(), faceRight);
+        g.drawImage(im, x - im.getWidth() / 2 - camX, y - im.getHeight() + 1 - z - camY,
+                Graphics.TOP | Graphics.LEFT);
     }
 }

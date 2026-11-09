@@ -59,6 +59,12 @@ public class Player {
                 && (w.npcs == null || !w.npcs.blocks(nx, ny, x, y, null));
     }
 
+    /** Like freeAt, but ignores vehicles and people (used when a car pushes Killer out of its way). */
+    public boolean freeTerrainAt(int nx, int ny, World w) {
+        return !w.solidTerrain(nx - 4, ny - 5) && !w.solidTerrain(nx + 3, ny - 5)
+                && !w.solidTerrain(nx - 4, ny - 1) && !w.solidTerrain(nx + 3, ny - 1);
+    }
+
     public void draw(Graphics g, int camX, int camY) {
         g.drawImage(Sprites.killer[dir][frame], x - Sprites.W / 2 - camX, y - (Sprites.H - 2) - camY,
                 Graphics.TOP | Graphics.LEFT);

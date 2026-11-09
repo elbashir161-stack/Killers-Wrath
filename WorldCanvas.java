@@ -17,6 +17,7 @@ public class WorldCanvas extends GameCanvas implements Runnable {
     private VehicleManager vehicles, cityVeh, forestVeh;
     private NpcManager npcs, cityNpcs, forestNpcs;
     private Image mini, cityMini, forestMini;
+    private PigeonManager pigeons, cityPigeons, forestPigeons;
 
     private Thread thread;
     private volatile boolean running = false;
@@ -81,14 +82,15 @@ public class WorldCanvas extends GameCanvas implements Runnable {
     /** Creates the people and vehicle managers for an area (the forest has none for now). */
     private void attach(World w, boolean starters) {
         boolean isCity = (w.area == World.CITY);
-        VehicleManager vm = new VehicleManager(w, player, isCity ? 56 : 0, isCity && starters);
+        VehicleManager vm = new VehicleManager(w, player, isCity ? 56 : 0, isCity && starters, isCity ? 14 : 0);
         w.vehicles = vm;
         NpcManager nm = new NpcManager(w, player, isCity ? 36 : 0);
         w.npcs = nm;
         nm.kills = kills;
         Image mm = w.buildMinimap();
-        if (isCity) { cityVeh = vm; cityNpcs = nm; cityMini = mm; }
-        else { forestVeh = vm; forestNpcs = nm; forestMini = mm; }
+        PigeonManager pm = new PigeonManager(w, player, isCity ? 14 : 0);
+        if (isCity) { cityVeh = vm; cityNpcs = nm; cityMini = mm; cityPigeons = pm; }
+        else { forestVeh = vm; forestNpcs = nm; forestMini = mm; forestPigeons = pm; }
     }
 
     private void use(World w) {
@@ -97,6 +99,7 @@ public class WorldCanvas extends GameCanvas implements Runnable {
         vehicles = isCity ? cityVeh : forestVeh;
         npcs = isCity ? cityNpcs : forestNpcs;
         mini = isCity ? cityMini : forestMini;
+        pigeons = isCity ? cityPigeons : forestPigeons;
         npcs.kills = kills;
         skids.clear();
         district = w.districtName(player.x, player.y);
@@ -263,6 +266,8 @@ public class WorldCanvas extends GameCanvas implements Runnable {
                     vehicles.update(player);
                     npcs.update(world, player);
                     if (driving != null) npcs.vehicleHit(driving);
+                    vehicles.updateTraffic(npcs, player, driving == null);
+                    pigeons.update(player, driving);
                     ticks++;
                     played++;
                     autoT++;
@@ -322,7 +327,9 @@ public class WorldCanvas extends GameCanvas implements Runnable {
             driving = null;
         } else {
             Vehicle v = vehicles.nearest(player.x, player.y, 40);
-            if (v != null) {
+            if (v != null && v.occupants > 0) {
+                say("Occupied! Can't enter", 50);
+            } else if (v != null) {
                 driving = v;
                 v.driven = true;
                 v.sp = 0;
@@ -388,6 +395,7 @@ public class WorldCanvas extends GameCanvas implements Runnable {
         g.fillRect(0, 0, sw, sh);
         world.draw(g, camX, camY, sw, sh);
         skids.draw(g, camX, camY, sw, sh);
+        pigeons.drawShadows(g, camX, camY, sw, sh);
         npcs.drawGround(g, camX, camY, sw, sh);
 
         // collect everything that stands up and draw it back to front
@@ -407,6 +415,13 @@ public class WorldCanvas extends GameCanvas implements Runnable {
             if (sx < -70 || sx > sw + 70 || sy < -70 || sy > sh + 70) continue;
             add(v.y + v.extY(), 2, i);
         }
+        for (int i = 0; i < pigeons.pigeons.length; i++) {
+            Pigeon pg = pigeons.pigeons[i];
+            if (pg.flying) continue;
+            int sx = pg.x - camX, sy = pg.y - camY;
+            if (sx < -20 || sx > sw + 20 || sy < -6 || sy > sh + 20) continue;
+            add(pg.y, 4, i);
+        }
         if (driving == null) add(player.y, 3, 0);
         sortDrawList();
         for (int i = 0; i < dn; i++) {
@@ -414,9 +429,11 @@ public class WorldCanvas extends GameCanvas implements Runnable {
                 case 0: world.drawTree(g, di[i], camX, camY); break;
                 case 1: npcs.npcs[di[i]].draw(g, camX, camY); break;
                 case 2: vehicles.drawVehicle(g, vehicles.list[di[i]], camX, camY); break;
+                case 4: pigeons.drawOne(g, di[i], camX, camY); break;
                 default: player.draw(g, camX, camY); break;
             }
         }
+        pigeons.drawFlying(g, camX, camY, sw, sh);
         npcs.drawBubbles(g, font, camX, camY);
 
         // HUD
@@ -437,7 +454,8 @@ public class WorldCanvas extends GameCanvas implements Runnable {
         else if (driving != null) {
             int spd = driving.sp < 0 ? -driving.sp : driving.sp;
             line = (spd * 90 / 256) + " km/h" + (driving.sp < 0 ? " R" : "") + "   # = get out";
-        } else if (vehicles.nearest(player.x, player.y, 40) != null) line = "# = get in";
+        } else if (vehicles.nearest(player.x, player.y, 40) != null)
+            line = (vehicles.nearest(player.x, player.y, 40).occupants > 0) ? "Occupied - can't get in" : "# = get in";
         else if (ticks < 150) line = "Arrows: move  FIRE: run  *: menu";
         if (line != null) {
             g.setColor(0x000000);

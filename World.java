@@ -261,6 +261,32 @@ public class World {
     private static int hhi(int i) { return hlo(i) + HW[i] - 1; }
     private static int vtop(int i) { return i >= 5 ? hlo(1) : 0; }
 
+    // ---- traffic helpers: which road covers a tile, and where its lanes are (drive on the right) ----
+    public static int hRoadAt(int ty) {
+        for (int i = 0; i < 5; i++) if (ty >= hlo(i) && ty <= hhi(i)) return i;
+        return -1;
+    }
+
+    public static int vRoadAt(int tx, int ty) {
+        for (int j = 0; j < 7; j++)
+            if (tx >= vlo(j) && tx <= vhi(j) && ty >= vtop(j) && ty < hlo(4)) return j;
+        return -1;
+    }
+
+    /** True if this pixel row lies along the length of vertical road j (not at its ends). */
+    public static boolean vRoadRows(int j, int py) {
+        int ty = py / TS;
+        return ty >= vtop(j) + 2 && ty < hlo(4) - 2;
+    }
+
+    public static int hLaneY(int i, boolean east) {
+        return hlo(i) * TS + (east ? HW[i] * TS * 3 / 4 : HW[i] * TS / 4);
+    }
+
+    public static int vLaneX(int j, boolean south) {
+        return vlo(j) * TS + (south ? VW[j] * TS / 4 : VW[j] * TS * 3 / 4);
+    }
+
     private static boolean isRoadTile(int t) {
         return (t >= ROAD && t <= ZEBRA_H) || t == ROAD_B || t == ROAD_C || t == MANHOLE || t == PUDDLE || t == CONE;
     }
