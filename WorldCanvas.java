@@ -3,19 +3,21 @@ import javax.microedition.lcdui.Graphics;
 import javax.microedition.lcdui.Image;
 import javax.microedition.lcdui.game.GameCanvas;
 
-/** Game loop, camera, rendering, pause menu and saving. */
+/** Game loop, camera, rendering, pause menu, saving, and moving between areas (city <-> forest). */
 public class WorldCanvas extends GameCanvas implements Runnable {
     private static final int FRAME_MS = 40; // 25 fps
 
     private final KillersWrath midlet;
-    private World world;
     private final Player player;
-    private VehicleManager vehicles;
-    private NpcManager npcs;
-    private PigeonManager pigeons;
     private final SkidMarks skids = new SkidMarks();
-    private Image mini;
     private final Font font = Font.getFont(Font.FACE_SYSTEM, Font.STYLE_BOLD, Font.SIZE_SMALL);
+
+    // the current area and the two areas (built when first visited)
+    private World world, city, forest;
+    private VehicleManager vehicles, cityVeh, forestVeh;
+    private NpcManager npcs, cityNpcs, forestNpcs;
+    private Image mini, cityMini, forestMini;
+
     private Thread thread;
     private volatile boolean running = false;
     private volatile boolean interact = false;
@@ -23,18 +25,26 @@ public class WorldCanvas extends GameCanvas implements Runnable {
     private String msg = null;
     private int msgT = 0;
     private int ticks = 0;
-    private int played = 0;
-    private int autoT = 0;
-    private String menuNote = null;
+    private int played = 0;          // play time in ticks (25 per second), saved
+    private int autoT = 0;           // counts up to the next autosave
+    private int kills = 0;
+    private String menuNote = null;  // result of the last save, shown in the menu
     private boolean noteOk = true;
 
+    // area change: fade to black, switch in the middle, fade back
+    private int transArea = -1;
+    private int transT = 0;
+
+    // pause menu: 0 none, 1 main, 2 save slots, 3 confirm quit
     private volatile int menuMode = 0;
     private int menuSel = 0;
     private final String[] slotLabel = new String[SaveManager.SLOTS];
 
+    // district banner
     private String district = "";
     private int bannerT = 0;
 
+    // everything that stands in the world is drawn back-to-front (sorted by its feet / base line)
     private final int[] dk = new int[1024];
     private final int[] dt = new int[1024];
     private final int[] di = new int[1024];
@@ -46,51 +56,74 @@ public class WorldCanvas extends GameCanvas implements Runnable {
         setFullScreenMode(true);
         Sprites.init();
         NpcSprites.init();
-        world = new World(0);
-        mini = world.buildMinimap();
-        int sx = 380 * World.TS + 8, sy = 120 * World.TS + 8;
+        int area = (save != null) ? save.area : World.CITY;
+        World w = new World(area);
+        if (area == World.CITY) city = w; else forest = w;
+        int sx, sy;
         boolean starters = true;
         if (save != null) {
-            int[] p = world.safeSpot(save.px, save.py);
+            int[] p = w.safeSpot(save.px, save.py);
             sx = p[0];
             sy = p[1];
             played = save.playTicks;
+            kills = save.kills;
             starters = false;
+        } else {
+            int[] p = w.startPoint();
+            sx = p[0];
+            sy = p[1];
         }
         player = new Player(sx, sy);
-        vehicles = new VehicleManager(world, player, 56, starters);
-        world.vehicles = vehicles;
-        npcs = new NpcManager(world, player, 36);
-        world.npcs = npcs;
-        pigeons = new PigeonManager(world, 60);
-        if (save != null) npcs.kills = save.kills;
-        district = world.districtName(sx, sy);
+        attach(w, starters);
+        use(w);
+    }
+
+    /** Creates the people and vehicle managers for an area (the forest has none for now). */
+    private void attach(World w, boolean starters) {
+        boolean isCity = (w.area == World.CITY);
+        VehicleManager vm = new VehicleManager(w, player, isCity ? 56 : 0, isCity && starters);
+        w.vehicles = vm;
+        NpcManager nm = new NpcManager(w, player, isCity ? 36 : 0);
+        w.npcs = nm;
+        nm.kills = kills;
+        Image mm = w.buildMinimap();
+        if (isCity) { cityVeh = vm; cityNpcs = nm; cityMini = mm; }
+        else { forestVeh = vm; forestNpcs = nm; forestMini = mm; }
+    }
+
+    private void use(World w) {
+        world = w;
+        boolean isCity = (w.area == World.CITY);
+        vehicles = isCity ? cityVeh : forestVeh;
+        npcs = isCity ? cityNpcs : forestNpcs;
+        mini = isCity ? cityMini : forestMini;
+        npcs.kills = kills;
+        skids.clear();
+        district = w.districtName(player.x, player.y);
         bannerT = 90;
     }
 
-    private void switchWorld(int newArea) {
-        int sx, sy;
-        if (newArea == World.FOREST) {
-            sx = 160 * World.TS;
-            sy = 230 * World.TS;
-        } else {
-            sx = 540 * World.TS;
-            sy = 10 * World.TS;
+    /** Leave the current area through its exit and appear at the other area's entrance. */
+    private void switchArea(int target) {
+        kills = npcs.kills;
+        if (driving != null) {              // the car stays behind
+            driving.driven = false;
+            driving.sp = 0;
+            driving = null;
         }
-        world = new World(newArea);
-        mini = world.buildMinimap();
-        int[] p = world.safeSpot(sx, sy);
-        player.x = p[0];
-        player.y = p[1];
-        driving = null;
-        vehicles = new VehicleManager(world, player, (newArea == World.FOREST) ? 0 : 56, false);
-        world.vehicles = vehicles;
-        npcs = new NpcManager(world, player, (newArea == World.FOREST) ? 10 : 36);
-        world.npcs = npcs;
-        pigeons = new PigeonManager(world, (newArea == World.FOREST) ? 12 : 24);
-        district = world.districtName(player.x, player.y);
-        bannerT = 90;
-        say(newArea == World.FOREST ? "Entered the Forest" : "Back in the City", 80);
+        World tw = (target == World.FOREST) ? forest : city;
+        boolean created = false;
+        if (tw == null) {
+            tw = new World(target);
+            if (target == World.FOREST) forest = tw; else city = tw;
+            created = true;
+        }
+        int[] e = tw.entryPoint();
+        player.x = e[0];
+        player.y = e[1];
+        player.dir = (target == World.FOREST) ? Sprites.DOWN : Sprites.UP;
+        if (created) attach(tw, false);
+        use(tw);
     }
 
     public synchronized void start() {
@@ -106,6 +139,8 @@ public class WorldCanvas extends GameCanvas implements Runnable {
 
     protected void showNotify() { start(); }
     protected void hideNotify() { stop(); }
+
+    // ---------------- input ----------------
 
     protected void keyPressed(int keyCode) {
         if (menuMode != 0) {
@@ -124,7 +159,11 @@ public class WorldCanvas extends GameCanvas implements Runnable {
 
     private void menuKey(int keyCode) {
         int ga = 0;
-        try { ga = getGameAction(keyCode); } catch (Exception e) {}
+        try {
+            ga = getGameAction(keyCode);
+        } catch (Exception e) {
+            // ignore
+        }
         int n = (menuMode == 1) ? 3 : (menuMode == 2) ? SaveManager.SLOTS + 1 : 2;
         if (ga == UP) menuSel = (menuSel + n - 1) % n;
         else if (ga == DOWN) menuSel = (menuSel + 1) % n;
@@ -140,21 +179,26 @@ public class WorldCanvas extends GameCanvas implements Runnable {
             if (menuSel == 0) menuMode = 0;
             else if (menuSel == 1) {
                 for (int i = 0; i < SaveManager.SLOTS; i++) slotLabel[i] = slotText(i);
-                menuMode = 2; menuSel = 0;
+                menuMode = 2;
+                menuSel = 0;
             } else { menuMode = 3; menuSel = 1; }
         } else if (menuMode == 2) {
             if (menuSel < SaveManager.SLOTS) doSave(menuSel);
             else { menuMode = 1; menuSel = 1; }
         } else {
-            if (menuSel == 0) { autoSave(); menuMode = 0; midlet.showTitle(); }
-            else { menuMode = 1; menuSel = 2; }
+            if (menuSel == 0) {
+                autoSave();
+                menuMode = 0;
+                midlet.showTitle();
+            } else { menuMode = 1; menuSel = 2; }
         }
     }
 
     private String slotText(int i) {
         SaveData d = SaveManager.load(i);
         if (!d.used) return "Slot " + (i + 1) + ": empty";
-        return "Slot " + (i + 1) + ": " + clock(d.playTicks) + "  " + world.districtName(d.px, d.py);
+        String where = (d.area == World.FOREST) ? "Blackwood Forest" : World.cityDistrict(d.px, d.py);
+        return "Slot " + (i + 1) + ": " + clock(d.playTicks) + "  " + where;
     }
 
     private static String clock(int tks) {
@@ -166,86 +210,130 @@ public class WorldCanvas extends GameCanvas implements Runnable {
 
     private SaveData snapshot() {
         SaveData d = new SaveData();
-        d.px = player.x; d.py = player.y;
-        d.kills = npcs.kills; d.playTicks = played;
-        d.health = 100; d.money = 0;
+        d.area = world.area;
+        d.px = player.x;
+        d.py = player.y;
+        d.kills = npcs.kills;
+        d.playTicks = played;
+        d.health = 100;
+        d.money = 0;
         d.stamp = System.currentTimeMillis();
         return d;
     }
 
-    private void autoSave() { SaveManager.save(SaveManager.AUTO, snapshot()); }
+    private void autoSave() {
+        SaveManager.save(SaveManager.AUTO, snapshot());
+    }
 
     private void doSave(int slot) {
         boolean ok = SaveManager.save(slot, snapshot());
         noteOk = ok;
         menuNote = ok ? "Saved to slot " + (slot + 1) : "Save failed: " + SaveManager.lastError;
-        menuMode = 1; menuSel = 1;
+        menuMode = 1;
+        menuSel = 1;
     }
+
+    // ---------------- main loop ----------------
 
     public void run() {
         Graphics g = getGraphics();
         while (running) {
             long t0 = System.currentTimeMillis();
             if (menuMode == 0) {
-                if (interact) { interact = false; toggleVehicle(); }
-                int keys = getKeyStates();
-                if (driving != null) {
-                    driving.drive(keys, world, vehicles);
-                    player.x = driving.x; player.y = driving.y;
-                    skids.update(driving, world);
+                if (transT > 0) {
+                    transT--;
+                    if (transT == 20) switchArea(transArea);
                 } else {
-                    player.update(keys, world);
+                    if (interact) {
+                        interact = false;
+                        toggleVehicle();
+                    }
+                    int keys = getKeyStates();
+                    if (driving != null) {
+                        driving.drive(keys, world, vehicles);
+                        player.x = driving.x;
+                        player.y = driving.y;
+                        skids.update(driving, world);
+                    } else {
+                        player.update(keys, world);
+                    }
+                    skids.age();
+                    npcs.driven = driving;
+                    npcs.playerOnFoot = (driving == null);
+                    vehicles.update(player);
+                    npcs.update(world, player);
+                    if (driving != null) npcs.vehicleHit(driving);
+                    ticks++;
+                    played++;
+                    autoT++;
+                    if (autoT >= 750) {
+                        autoT = 0;
+                        autoSave();
+                    }
+                    if (ticks % 10 == 0) {
+                        String dn2 = world.districtName(player.x, player.y);
+                        if (!dn2.equals(district)) {
+                            district = dn2;
+                            bannerT = 75;
+                        }
+                    }
+                    if (bannerT > 0) bannerT--;
+                    int ex = world.exitAt(player.x, player.y);
+                    if (ex >= 0) {
+                        transArea = ex;
+                        transT = 40;
+                    }
                 }
-                if (world.area == World.CITY && player.y < 20 && player.x > 500 * World.TS) {
-                    switchWorld(World.FOREST);
-                } else if (world.area == World.FOREST && player.y > world.mh * World.TS - 20) {
-                    switchWorld(World.CITY);
-                }
-                skids.age();
-                npcs.driven = driving;
-                npcs.playerOnFoot = (driving == null);
-                vehicles.update(player);
-                npcs.update(world, player);
-                pigeons.update(world, player);
-                if (driving != null) npcs.vehicleHit(driving);
-                ticks++; played++; autoT++;
-                if (autoT >= 750) { autoT = 0; autoSave(); }
-                if (ticks % 10 == 0) {
-                    String dn2 = world.districtName(player.x, player.y);
-                    if (!dn2.equals(district)) { district = dn2; bannerT = 75; }
-                }
-                if (bannerT > 0) bannerT--;
             }
             if (msgT > 0) msgT--;
             render(g);
             flushGraphics();
             long wait = FRAME_MS - (System.currentTimeMillis() - t0);
             if (wait < 5) wait = 5;
-            try { Thread.sleep(wait); } catch (InterruptedException e) {}
+            try {
+                Thread.sleep(wait);
+            } catch (InterruptedException e) {
+                // ignore
+            }
         }
     }
 
-    private void say(String text, int ticksToShow) { msg = text; msgT = ticksToShow; }
+    private void say(String text, int ticksToShow) {
+        msg = text;
+        msgT = ticksToShow;
+    }
 
     private void toggleVehicle() {
         if (driving != null) {
             int spd = driving.sp < 0 ? -driving.sp : driving.sp;
-            if (spd > 48) { say("Slow down to get out", 50); return; }
+            if (spd > 48) {
+                say("Slow down to get out", 50);
+                return;
+            }
             int[] spot = exitSpot(driving);
-            if (spot == null) { say("No room to get out", 50); return; }
-            driving.driven = false; driving.sp = 0;
-            player.x = spot[0]; player.y = spot[1];
+            if (spot == null) {
+                say("No room to get out", 50);
+                return;
+            }
+            driving.driven = false;
+            driving.sp = 0;
+            player.x = spot[0];
+            player.y = spot[1];
             driving = null;
         } else {
             Vehicle v = vehicles.nearest(player.x, player.y, 40);
             if (v != null) {
-                driving = v; v.driven = true; v.sp = 0;
-                player.x = v.x; player.y = v.y;
+                driving = v;
+                v.driven = true;
+                v.sp = 0;
+                player.x = v.x;
+                player.y = v.y;
                 say("Up = gas   Down = brake / reverse   Left / Right = steer", 120);
             }
         }
     }
 
+    /** A free place beside the vehicle (its sides first, then front and back) for Killer to stand. */
     private int[] exitSpot(Vehicle v) {
         int c = VehicleKit.COS[v.h], s = VehicleKit.SIN[v.h];
         int ds = v.wid() / 2 + 10, df = v.len() / 2 + 10;
@@ -260,9 +348,14 @@ public class WorldCanvas extends GameCanvas implements Runnable {
         return null;
     }
 
+    // ---------------- drawing ----------------
+
     private void add(int key, int type, int idx) {
         if (dn >= dk.length) return;
-        dk[dn] = key; dt[dn] = type; di[dn] = idx; dn++;
+        dk[dn] = key;
+        dt[dn] = type;
+        di[dn] = idx;
+        dn++;
     }
 
     private void sortDrawList() {
@@ -270,9 +363,14 @@ public class WorldCanvas extends GameCanvas implements Runnable {
             int k = dk[i], t = dt[i], x = di[i];
             int j = i - 1;
             while (j >= 0 && dk[j] > k) {
-                dk[j + 1] = dk[j]; dt[j + 1] = dt[j]; di[j + 1] = di[j]; j--;
+                dk[j + 1] = dk[j];
+                dt[j + 1] = dt[j];
+                di[j + 1] = di[j];
+                j--;
             }
-            dk[j + 1] = k; dt[j + 1] = t; di[j + 1] = x;
+            dk[j + 1] = k;
+            dt[j + 1] = t;
+            di[j + 1] = x;
         }
     }
 
@@ -285,12 +383,14 @@ public class WorldCanvas extends GameCanvas implements Runnable {
         if (camX < 0) camX = 0;
         if (camY > maxY) camY = maxY;
         if (camY < 0) camY = 0;
+
         g.setColor(0x000000);
         g.fillRect(0, 0, sw, sh);
         world.draw(g, camX, camY, sw, sh);
         skids.draw(g, camX, camY, sw, sh);
         npcs.drawGround(g, camX, camY, sw, sh);
-        pigeons.draw(g, camX, camY, sw, sh);
+
+        // collect everything that stands up and draw it back to front
         dn = 0;
         int tc = world.collectTrees(camX, camY, sw, sh);
         for (int i = 0; i < tc; i++) add(world.treeBaseY(world.treeBuf[i]), 0, world.treeBuf[i]);
@@ -318,6 +418,8 @@ public class WorldCanvas extends GameCanvas implements Runnable {
             }
         }
         npcs.drawBubbles(g, font, camX, camY);
+
+        // HUD
         g.setFont(font);
         g.setColor(0x000000);
         g.fillRect(0, 0, sw, font.getHeight() + 2);
@@ -326,8 +428,10 @@ public class WorldCanvas extends GameCanvas implements Runnable {
             g.drawString("KILLER'S WRATH", 4, 1, Graphics.TOP | Graphics.LEFT);
         } else {
             g.setColor(0xFFFFFF);
-            g.drawString("Fleeing: " + npcs.count(Npc.FLEEING) + "  Hiding: " + npcs.count(Npc.INSIDE) + "  Down: " + npcs.kills, 4, 1, Graphics.TOP | Graphics.LEFT);
+            g.drawString("Fleeing: " + npcs.count(Npc.FLEEING) + "  Hiding: " + npcs.count(Npc.INSIDE)
+                    + "  Down: " + npcs.kills, 4, 1, Graphics.TOP | Graphics.LEFT);
         }
+
         String line = null;
         if (msgT > 0) line = msg;
         else if (driving != null) {
@@ -341,43 +445,70 @@ public class WorldCanvas extends GameCanvas implements Runnable {
             g.setColor(0xFFFFFF);
             g.drawString(line, 4, sh - font.getHeight() - 1, Graphics.TOP | Graphics.LEFT);
         }
+
         if (bannerT > 0 && menuMode == 0) {
             int bw = font.stringWidth(district) + 16, bh = font.getHeight() + 6;
             int bx = (sw - bw) / 2, by = font.getHeight() + 8;
-            g.setColor(0x050806); g.fillRect(bx, by, bw, bh);
-            g.setColor(0x8A1414); g.drawRect(bx, by, bw - 1, bh - 1);
+            g.setColor(0x050806);
+            g.fillRect(bx, by, bw, bh);
+            g.setColor(0x8A1414);
+            g.drawRect(bx, by, bw - 1, bh - 1);
             g.setColor(0xE8C23A);
             g.drawString(district, sw / 2, by + 3, Graphics.TOP | Graphics.HCENTER);
         }
+
+        // minimap
         if (sw >= 160) {
             int mw = mini.getWidth(), mh = mini.getHeight();
             int mx = sw - mw - 3, my = sh - mh - font.getHeight() - 8;
             g.drawImage(mini, mx, my, Graphics.TOP | Graphics.LEFT);
-            g.setColor(0xFFFFFF); g.drawRect(mx - 1, my - 1, mw + 1, mh + 1);
+            g.setColor(0xFFFFFF);
+            g.drawRect(mx - 1, my - 1, mw + 1, mh + 1);
             g.setColor(0xFF0000);
-            g.fillRect(mx + player.x / (World.TS * 8) - 1, my + player.y / (World.TS * 8) - 1, 3, 3);
+            g.fillRect(mx + player.x / (World.TS * World.MINI) - 1, my + player.y / (World.TS * World.MINI) - 1, 3, 3);
         }
+
         if (menuMode != 0) drawMenu(g, sw, sh);
+
+        if (transT > 0) {                       // black screen with the name of where we are going
+            g.setColor(0x000000);
+            g.fillRect(0, 0, sw, sh);
+            g.setColor(0xC41818);
+            g.setFont(font);
+            g.drawString(transArea == World.FOREST ? "BLACKWOOD FOREST" : "THE CITY",
+                    sw / 2, sh / 2 - font.getHeight() / 2, Graphics.TOP | Graphics.HCENTER);
+        }
     }
 
     private void drawMenu(Graphics g, int sw, int sh) {
-        String head; String[] items;
-        if (menuMode == 1) { head = "PAUSED"; items = new String[] {"Resume", "Save Game", "Quit to Title"}; }
-        else if (menuMode == 2) {
-            head = "SAVE GAME"; items = new String[SaveManager.SLOTS + 1];
+        String head;
+        String[] items;
+        if (menuMode == 1) {
+            head = "PAUSED";
+            items = new String[] {"Resume", "Save Game", "Quit to Title"};
+        } else if (menuMode == 2) {
+            head = "SAVE GAME";
+            items = new String[SaveManager.SLOTS + 1];
             for (int i = 0; i < SaveManager.SLOTS; i++) items[i] = slotLabel[i];
             items[SaveManager.SLOTS] = "Back";
-        } else { head = "QUIT TO TITLE?"; items = new String[] {"Yes, quit", "No, keep playing"}; }
+        } else {
+            head = "QUIT TO TITLE?";
+            items = new String[] {"Yes, quit", "No, keep playing"};
+        }
         int lineH = font.getHeight() + 7;
-        int boxW = sw - 20; if (boxW > 230) boxW = 230;
+        int boxW = sw - 20;
+        if (boxW > 230) boxW = 230;
         int extra = (menuMode == 3) ? lineH : 0;
         int noteH = (menuNote != null && menuMode != 3) ? lineH * 2 : 0;
         int boxH = lineH * (items.length + 1) + 14 + extra + noteH;
         int bx = (sw - boxW) / 2, by = (sh - boxH) / 2;
-        g.setColor(0x050806); g.fillRect(bx, by, boxW, boxH);
-        g.setColor(0x8A1414); g.drawRect(bx, by, boxW - 1, boxH - 1);
+        g.setColor(0x050806);
+        g.fillRect(bx, by, boxW, boxH);
+        g.setColor(0x8A1414);
+        g.drawRect(bx, by, boxW - 1, boxH - 1);
         g.drawRect(bx + 2, by + 2, boxW - 5, boxH - 5);
-        g.setFont(font); g.setColor(0xC41818);
+        g.setFont(font);
+        g.setColor(0xC41818);
         g.drawString(head, sw / 2, by + 8, Graphics.TOP | Graphics.HCENTER);
         int y = by + 8 + lineH;
         if (noteH > 0) {
@@ -387,7 +518,8 @@ public class WorldCanvas extends GameCanvas implements Runnable {
             if (font.stringWidth(n1) > maxW) {
                 int cut = n1.length();
                 while (cut > 1 && font.stringWidth(n1.substring(0, cut)) > maxW) cut--;
-                n2 = n1.substring(cut); n1 = n1.substring(0, cut);
+                n2 = n1.substring(cut);
+                n1 = n1.substring(0, cut);
             }
             g.drawString(n1, bx + 8, y - 4, Graphics.TOP | Graphics.LEFT);
             if (n2 != null) g.drawString(n2, bx + 8, y - 4 + font.getHeight(), Graphics.TOP | Graphics.LEFT);
@@ -400,11 +532,14 @@ public class WorldCanvas extends GameCanvas implements Runnable {
         }
         for (int i = 0; i < items.length; i++) {
             if (i == menuSel) {
-                g.setColor(0x3A0A0A); g.fillRect(bx + 5, y - 3, boxW - 10, lineH - 1);
+                g.setColor(0x3A0A0A);
+                g.fillRect(bx + 5, y - 3, boxW - 10, lineH - 1);
                 g.setColor(0xE8C23A);
-            } else { g.setColor(0x8A9A8E); }
+            } else {
+                g.setColor(0x8A9A8E);
+            }
             g.drawString(items[i], bx + 12, y, Graphics.TOP | Graphics.LEFT);
             y += lineH;
         }
     }
-    }
+}

@@ -3,10 +3,11 @@ import javax.microedition.lcdui.Font;
 import javax.microedition.lcdui.Graphics;
 import javax.microedition.lcdui.Image;
 
-/** Calm city population: families, playing kids, people going somewhere. No panic chain. */
+/** Pedestrians live around Killer; far-away ones are recycled near him. Also: collisions, blood, deaths. */
 public class NpcManager {
     private static final Random R = new Random();
 
+    /** Random 0..n-1 (CLDC 1.1 Random has no nextInt(int)). */
     public static int rnd(int n) {
         return (R.nextInt() & 0x7FFFFFFF) % n;
     }
@@ -15,8 +16,8 @@ public class NpcManager {
     public final int[] doorX;
     public final int[] doorY;
     public final int[] doorUse;
-    public Vehicle driven;
-    public boolean playerOnFoot = true;
+    public Vehicle driven;              // the vehicle Killer is driving, or null
+    public boolean playerOnFoot = true; // people bump into Killer only when he walks
     public int kills = 0;
 
     private final World world;
@@ -47,143 +48,11 @@ public class NpcManager {
                     : (r < 55) ? Npc.P_PANIC : Npc.P_NORMAL;
             npcs[i] = new Npc(px, py, rnd(NpcSprites.LOOKS), pers);
         }
-        wireRelationships();
     }
 
-    private void wireRelationships() {
-        for (int i = 0; i < npcs.length; i++) {
-            Npc kid = npcs[i];
-            if (kid.kind != Npc.KID || kid.kidRole != Npc.K_WITH_PARENT) continue;
-            Npc bestParent = null;
-            int bestD = 999999;
-            for (int j = 0; j < npcs.length; j++) {
-                Npc a = npcs[j];
-                if (a.kind != Npc.ADULT) continue;
-                int kids = 0;
-                for (int t = 0; t < npcs.length; t++) {
-                    if (npcs[t].parent == a) kids++;
-                }
-                if (kids >= 2) continue;
-                int dx = a.x - kid.x, dy = a.y - kid.y;
-                int d = dx * dx + dy * dy;
-                if (d < bestD) { bestD = d; bestParent = a; }
-            }
-            if (bestParent != null) {
-                kid.parent = bestParent;
-                kid.x = bestParent.x + 10;
-                kid.y = bestParent.y + 8;
-                kid.homeX = bestParent.x;
-                kid.homeY = bestParent.y;
-            } else {
-                kid.kidRole = Npc.K_HOME;
-                kid.homeX = kid.x;
-                kid.homeY = kid.y;
-            }
-        }
+    // ---------------- placement ----------------
 
-        int playgrounds = 3;
-        int[] pgX = new int[playgrounds];
-        int[] pgY = new int[playgrounds];
-        for (int p = 0; p < playgrounds; p++) {
-            if (world.doorCount > 0) {
-                int d = rnd(world.doorCount);
-                pgX[p] = doorX[d];
-                pgY[p] = doorY[d] + 30;
-            } else {
-                pgX[p] = player.x + (p - 1) * 120;
-                pgY[p] = player.y + 80;
-            }
-        }
-        int pgIndex = 0;
-        for (int i = 0; i < npcs.length; i++) {
-            Npc kid = npcs[i];
-            if (kid.kind != Npc.KID || kid.kidRole != Npc.K_PLAYING) continue;
-            kid.playCX = pgX[pgIndex % playgrounds];
-            kid.playCY = pgY[pgIndex % playgrounds];
-            kid.x = kid.playCX + rnd(30) - 15;
-            kid.y = kid.playCY + rnd(20) - 10;
-            kid.destX = kid.playCX;
-            kid.destY = kid.playCY;
-            if (i % 3 == 2) pgIndex++;
-        }
-
-        for (int i = 0; i < npcs.length; i++) {
-            Npc kid = npcs[i];
-            if (kid.kind != Npc.KID || kid.kidRole != Npc.K_HOME) continue;
-            if (world.doorCount > 0) {
-                int d = rnd(world.doorCount);
-                kid.homeX = doorX[d];
-                kid.homeY = doorY[d] + 20;
-                kid.x = kid.homeX + rnd(20) - 10;
-                kid.y = kid.homeY + rnd(10) - 5;
-            } else {
-                kid.homeX = kid.x;
-                kid.homeY = kid.y;
-            }
-        }
-
-        for (int i = 0; i < npcs.length; i++) {
-            Npc a = npcs[i];
-            if (a.kind != Npc.ADULT || a.role != Npc.R_GOING) continue;
-            if (world.doorCount > 0) {
-                int d = rnd(world.doorCount);
-                a.destX = doorX[d];
-                a.destY = doorY[d] + 15;
-            } else {
-                a.destX = a.x + 150;
-                a.destY = a.y;
-            }
-        }
-    }
-
-    private void rewireOne(Npc n) {
-        if (n.kind == Npc.KID && n.kidRole == Npc.K_WITH_PARENT) {
-            Npc best = null;
-            int bestD = 999999;
-            for (int j = 0; j < npcs.length; j++) {
-                Npc a = npcs[j];
-                if (a.kind != Npc.ADULT) continue;
-                int dx = a.x - n.x, dy = a.y - n.y;
-                int d = dx * dx + dy * dy;
-                if (d < bestD) { bestD = d; best = a; }
-            }
-            if (best != null) {
-                n.parent = best;
-                n.x = best.x + 10;
-                n.y = best.y + 8;
-            } else {
-                n.kidRole = Npc.K_HOME;
-                n.homeX = n.x;
-                n.homeY = n.y;
-            }
-        } else if (n.kind == Npc.KID && n.kidRole == Npc.K_PLAYING) {
-            if (world.doorCount > 0) {
-                int d = rnd(world.doorCount);
-                n.playCX = doorX[d];
-                n.playCY = doorY[d] + 30;
-                n.x = n.playCX;
-                n.y = n.playCY;
-            }
-        } else if (n.kind == Npc.KID && n.kidRole == Npc.K_HOME) {
-            if (world.doorCount > 0) {
-                int d = rnd(world.doorCount);
-                n.homeX = doorX[d];
-                n.homeY = doorY[d] + 20;
-                n.x = n.homeX;
-                n.y = n.homeY;
-            } else {
-                n.homeX = n.x;
-                n.homeY = n.y;
-            }
-        } else if (n.kind == Npc.ADULT && n.role == Npc.R_GOING) {
-            if (world.doorCount > 0) {
-                int d = rnd(world.doorCount);
-                n.destX = doorX[d];
-                n.destY = doorY[d] + 15;
-            }
-        }
-    }
-
+    /** A random sidewalk spot between minD and maxD pixels from Killer, or null. */
     private int[] placeAround(Player k, int minD, int maxD) {
         int rad = maxD / World.TS + 1;
         for (int i = 0; i < 80; i++) {
@@ -208,14 +77,17 @@ public class NpcManager {
             int dx = n.x - k.x, dy = n.y - k.y;
             if (dx * dx + dy * dy > 640 * 640) {
                 int[] p = placeAround(k, 320, 560);
-                if (p != null) {
-                    n.reset(p[0], p[1]);
-                    rewireOne(n);
-                }
+                if (p != null) n.reset(p[0], p[1]);
             }
         }
     }
 
+    // ---------------- people are solid ----------------
+
+    /**
+     * Would a body (8x5 feet box) at nx,ny overlap another person? Bodies already overlapping may still
+     * move apart. self == null means the mover is Killer.
+     */
     public boolean blocks(int nx, int ny, int cx, int cy, Npc self) {
         for (int i = 0; i < npcs.length; i++) {
             Npc n = npcs[i];
@@ -230,6 +102,9 @@ public class NpcManager {
         return false;
     }
 
+    // ---------------- cars hit people ----------------
+
+    /** Called every tick while Killer drives: anyone the body touches at speed is hurt. */
     public void vehicleHit(Vehicle v) {
         int spd = v.sp < 0 ? -v.sp : v.sp;
         if (spd < 24) return;
@@ -243,12 +118,29 @@ public class NpcManager {
         }
     }
 
+    /** Someone was hurt: calm neighbours nearby get alarmed. */
     public void panicNear(int x, int y, int fx, int fy) {
+        for (int i = 0; i < npcs.length; i++) {
+            Npc n = npcs[i];
+            if ((n.state != Npc.NORMAL && n.state != Npc.STAND) || n.personality == Npc.P_BRAVE) continue;
+            int dx = n.x - x, dy = n.y - y;
+            if (dx * dx + dy * dy < 220 * 220) n.startRecognise(fx, fy, true, 4 + rnd(8));
+        }
     }
 
+    /** A pedestrian shouts: calm neighbours within earshot become alarmed. */
     public void hear(Npc s) {
+        for (int i = 0; i < npcs.length; i++) {
+            Npc n = npcs[i];
+            if (n == s || n.state != Npc.NORMAL || n.personality == Npc.P_BRAVE) continue;
+            int dx = n.x - s.x, dy = n.y - s.y;
+            if (dx * dx + dy * dy < 180 * 180) {
+                n.startRecognise(s.fx, s.fy, true, 6 + rnd(14));
+            }
+        }
     }
 
+    /** Nearest free house door that can be reached from the south side, or -1. */
     public int findDoor(int x, int y) {
         int best = -1, bestD = 320 * 320;
         for (int i = 0; i < world.doorCount; i++) {
@@ -263,6 +155,8 @@ public class NpcManager {
         }
         return best;
     }
+
+    // ---------------- blood ----------------
 
     public void addBlood(int x, int y, int size) {
         bloodX[bloodHead] = x;
@@ -289,15 +183,15 @@ public class NpcManager {
     }
 
     private static void disc(int[] p, int size, int cx, int cy, int r, int col) {
-        for (int y = cy - r; y <= cy + r; y++) {
+        for (int y = cy - r; y <= cy + r; y++)
             for (int x = cx - r; x <= cx + r; x++) {
                 if (x < 0 || y < 0 || x >= size || y >= size) continue;
                 int dx = x - cx, dy = y - cy;
                 if (dx * dx + dy * dy <= r * r) p[y * size + x] = col;
             }
-        }
     }
 
+    /** Blood pools and bodies lie on the ground, under everything that stands. */
     public void drawGround(Graphics g, int camX, int camY, int sw, int sh) {
         for (int i = 0; i < bloodN; i++) {
             Image im = bloodImg[bloodS[i]];
@@ -325,4 +219,4 @@ public class NpcManager {
         for (int i = 0; i < npcs.length; i++) if (npcs[i].state == state) c++;
         return c;
     }
-                          }
+}
