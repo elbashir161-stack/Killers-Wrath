@@ -281,4 +281,13 @@ public class Npc {
         g.setColor(0x000000);
         g.drawString(bubble, sx, sy - bh + 2, Graphics.HCENTER | Graphics.TOP);
     }
+    public void draw(Graphics g, int camX, int camY) {
+        if (state == DEAD || state == INSIDE) return;
+        int sx = x - camX;
+        int sy = y - camY;
+        g.setColor(0x3366CC);
+        g.fillRect(sx - 4, sy - 12, 8, 12);
+        g.setColor(0xFFCC99);
+        g.fillRect(sx - 3, sy - 17, 6, 5);
+    }
 }
