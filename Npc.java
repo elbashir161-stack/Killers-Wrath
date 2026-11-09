@@ -222,7 +222,7 @@ public class Npc {
         }
         int txTile = nx / World.TS;
         int tyTile = ny / World.TS;
-        if (!w.isSidewalk(txTile, tyTile) && !w.isRoad(txTile, tyTile)) {
+        if (!w.isSidewalk(txTile, tyTile)) {
             if (Math.abs(dx) > Math.abs(dy)) {
                 nx = x;
                 ny = y + ((dy > 0) ? speed : -speed);
@@ -234,7 +234,7 @@ public class Npc {
             }
             txTile = nx / World.TS;
             tyTile = ny / World.TS;
-            if (!w.isSidewalk(txTile, tyTile) && !w.isRoad(txTile, tyTile)) {
+            if (!w.isSidewalk(txTile, tyTile)) {
                 waitT = 30;
                 return;
             }
