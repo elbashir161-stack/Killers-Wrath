@@ -23,6 +23,10 @@ public class Npc {
     public static final int NORMAL = 0;
     public static final int DEAD = 1;
     public static final int INSIDE = 2;
+    public static final int FLEEING = 99;
+    public static final int HIDING = 99;
+    public static final int PANICKED = 99;
+    public static final int SCREAMING = 99;
 
     public int x, y;
     public int look;
