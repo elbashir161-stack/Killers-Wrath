@@ -1,31 +1,25 @@
 import javax.microedition.lcdui.Font;
 import javax.microedition.lcdui.Graphics;
 
-/** Calm NPC - walks, follows parent, plays, goes to doors. No panic, no screaming. */
 public class Npc {
 
-    // Personality
     public static final int P_NORMAL = 0;
     public static final int P_BRAVE = 1;
     public static final int P_COWARD = 2;
     public static final int P_FROZEN = 3;
     public static final int P_PANIC = 4;
 
-    // Kind
     public static final int ADULT = 0;
     public static final int KID = 1;
 
-    // Kid roles
     public static final int K_HOME = 0;
     public static final int K_WITH_PARENT = 1;
     public static final int K_PLAYING = 2;
 
-    // Adult roles
     public static final int R_IDLE = 0;
     public static final int R_GOING = 1;
     public static final int R_SITTING = 2;
 
-    // States
     public static final int NORMAL = 0;
     public static final int DEAD = 1;
     public static final int INSIDE = 2;
@@ -44,7 +38,7 @@ public class Npc {
     public Npc parent;
 
     public int hp = 100;
-    public int dir = 2; // 0 up, 1 down, 2 left, 3 right
+    public int dir = 2;
     public int anim = 0;
     public int waitT = 0;
     public int speed = 1;
@@ -104,11 +98,8 @@ public class Npc {
             if (bubbleT > 0) bubbleT--;
             return;
         }
-
         if (bubbleT > 0) bubbleT--;
         if (lookAtT > 0) lookAtT--;
-
-        // Look at player when close - calm curiosity
         int dxp = k.x - x;
         int dyp = k.y - y;
         int d2p = dxp * dxp + dyp * dyp;
@@ -117,30 +108,18 @@ public class Npc {
             if (Math.abs(dxp) > Math.abs(dyp)) dir = (dxp > 0) ? 3 : 2;
             else dir = (dyp > 0) ? 1 : 0;
         }
-
-        if (lookAtT > 0) {
-            // stand and look, don't walk
-            return;
-        }
-
+        if (lookAtT > 0) return;
         thinkT--;
         if (thinkT <= 0) {
             thinkT = 20 + NpcManager.rnd(40);
             decide(m, w, k);
         }
-
         if (waitT > 0) {
             waitT--;
             return;
         }
-
-        // Movement per kind / role
-        if (kind == KID) {
-            updateKid(m, w);
-        } else {
-            updateAdult(m, w);
-        }
-
+        if (kind == KID) updateKid(m, w);
+        else updateAdult(m, w);
         step++;
         if (step % 8 == 0) anim = (anim + 1) & 1;
     }
@@ -148,12 +127,9 @@ public class Npc {
     private void decide(NpcManager m, World w, Player k) {
         if (kind == KID) {
             if (kidRole == K_PLAYING) {
-                // wander around playground
                 destX = playCX + NpcManager.rnd(41) - 20;
                 destY = playCY + NpcManager.rnd(31) - 15;
-                if (NpcManager.rnd(100) < 15) {
-                    say("Yay!");
-                }
+                if (NpcManager.rnd(100) < 15) say("Yay!");
             } else if (kidRole == K_HOME) {
                 destX = homeX + NpcManager.rnd(31) - 15;
                 destY = homeY + NpcManager.rnd(21) - 10;
@@ -166,7 +142,6 @@ public class Npc {
             }
         } else {
             if (role == R_GOING) {
-                // if reached dest, pick new door or wait
                 int dx = destX - x, dy = destY - y;
                 if (dx * dx + dy * dy < 20 * 20) {
                     if (NpcManager.rnd(100) < 50) {
@@ -201,12 +176,10 @@ public class Npc {
             int dx = parent.x - x, dy = parent.y - y;
             int d2 = dx * dx + dy * dy;
             if (d2 < 18 * 18) {
-                // close enough, stay near parent
                 waitT = 10;
                 return;
             }
             if (d2 > 120 * 120) {
-                // too far, teleport closer so kid never gets lost
                 x = parent.x + 10;
                 y = parent.y + 8;
                 return;
@@ -240,7 +213,68 @@ public class Npc {
     private void walkToward(NpcManager m, World w, int tx, int ty) {
         int nx = x, ny = y;
         int dx = tx - x, dy = ty - y;
-
         if (Math.abs(dx) > Math.abs(dy)) {
             nx += (dx > 0) ? speed : -speed;
-            dir = (dx > 
+            dir = (dx > 0) ? 3 : 2;
+        } else {
+            ny += (dy > 0) ? speed : -speed;
+            dir = (dy > 0) ? 1 : 0;
+        }
+        int txTile = nx / World.TS;
+        int tyTile = ny / World.TS;
+        if (!w.isSidewalk(txTile, tyTile) && !w.isRoad(txTile, tyTile)) {
+            if (Math.abs(dx) > Math.abs(dy)) {
+                nx = x;
+                ny = y + ((dy > 0) ? speed : -speed);
+                dir = (dy > 0) ? 1 : 0;
+            } else {
+                ny = y;
+                nx = x + ((dx > 0) ? speed : -speed);
+                dir = (dx > 0) ? 3 : 2;
+            }
+            txTile = nx / World.TS;
+            tyTile = ny / World.TS;
+            if (!w.isSidewalk(txTile, tyTile) && !w.isRoad(txTile, tyTile)) {
+                waitT = 30;
+                return;
+            }
+        }
+        if (m.blocks(nx, ny, x, y, this)) {
+            waitT = 15;
+            return;
+        }
+        x = nx;
+        y = ny;
+    }
+
+    public void say(String s) {
+        bubble = s;
+        bubbleT = 90;
+    }
+
+    public void hurt(int dmg, NpcManager m, int fromX, int fromY) {
+        if (state != NORMAL) return;
+        hp -= dmg;
+        m.addBlood(x, y, 1);
+        if (hp <= 0) {
+            state = DEAD;
+            m.kills++;
+            bubble = null;
+            bubbleT = 0;
+        }
+    }
+
+    public void drawBubble(Graphics g, Font f, int camX, int camY) {
+        if (bubble == null || bubbleT <= 0 || state != NORMAL) return;
+        int sx = x - camX;
+        int sy = y - 28 - camY;
+        int bw = f.stringWidth(bubble) + 8;
+        int bh = f.getHeight() + 4;
+        g.setColor(0xFFFFFF);
+        g.fillRoundRect(sx - bw / 2, sy - bh, bw, bh, 6, 6);
+        g.setColor(0x000000);
+        g.drawRoundRect(sx - bw / 2, sy - bh, bw, bh, 6, 6);
+        g.setColor(0x000000);
+        g.drawString(bubble, sx, sy - bh + 2, Graphics.HCENTER | Graphics.TOP);
+    }
+}
