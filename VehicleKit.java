@@ -6,8 +6,8 @@ import javax.microedition.lcdui.Image;
  * and 7 rich color palettes per vehicle type!
  */
 public class VehicleKit {
-    public static final int SEDAN = 0, SPORTS = 1, TRUCK = 2, MOTO = 3, MOTO_RIDER = 4;
-    
+    public static final int SEDAN = 0, SPORTS = 1, TRUCK = 2, PICKUP = 2, MOTO = 3, MOTO_RIDER = 4;
+
     // Adjusted lengths and widths for proper relative scaling (in pixels)
     // Sedan: 72x30, Sports: 74x28, Truck/SUV: 84x34, Moto: 38x16
     public static final int[] LEN = {72, 74, 84, 38, 38};
