@@ -1,5 +1,6 @@
 import javax.microedition.lcdui.Font;
 import javax.microedition.lcdui.Graphics;
+import javax.microedition.lcdui.Image;
 
 /** One pedestrian with a personality and a simple state machine. */
 public class Npc {
@@ -396,7 +397,8 @@ public class Npc {
     public void draw(Graphics g, int camX, int camY) {
         if (state == INSIDE || state == DEAD) return;
         if (kid) {
-            g.drawImage(NpcSprites.kids[look][dir][frame], x - NpcSprites.KW / 2 - camX, y - NpcSprites.KFEET - camY,
+            Image ki = NpcSprites.kids[look][dir][frame];
+            g.drawImage(ki, x - ki.getWidth() / 2 - camX, y - (ki.getHeight() - 1) - camY,
                     Graphics.TOP | Graphics.LEFT);
             return;
         }
@@ -410,7 +412,7 @@ public class Npc {
         int w = f.stringWidth(bubble) + 6;
         int h = f.getHeight() + 2;
         int bx = sx - w / 2;
-        int by = sy - (kid ? NpcSprites.KFEET + 6 : NpcSprites.H + 3) - h;
+        int by = sy - (kid ? NpcSprites.kids[look][0][0].getHeight() + 5 : NpcSprites.H + 3) - h;
         g.setColor(0xFFFFFF);
         g.fillRoundRect(bx, by, w, h, 6, 6);
         g.setColor(0x000000);

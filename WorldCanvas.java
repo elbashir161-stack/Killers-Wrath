@@ -35,6 +35,7 @@ public class WorldCanvas extends GameCanvas implements Runnable {
     // area change: fade to black, switch in the middle, fade back
     private int transArea = -1;
     private int transT = 0;
+    private int exitCool = 0;
 
     // pause menu: 0 none, 1 main, 2 save slots, 3 confirm quit
     private volatile int menuMode = 0;
@@ -242,10 +243,20 @@ public class WorldCanvas extends GameCanvas implements Runnable {
         Graphics g = getGraphics();
         while (running) {
             long t0 = System.currentTimeMillis();
+            try {
             if (menuMode == 0) {
                 if (transT > 0) {
                     transT--;
-                    if (transT == 20) switchArea(transArea);
+                    if (transT == 20) {
+                        try {
+                            switchArea(transArea);
+                        } catch (Throwable e) {
+                            transT = 0;
+                            transArea = -1;
+                            exitCool = 150;
+                            say("Could not load: " + describe(e), 200);
+                        }
+                    }
                 } else {
                     if (interact) {
                         interact = false;
@@ -283,7 +294,8 @@ public class WorldCanvas extends GameCanvas implements Runnable {
                         }
                     }
                     if (bannerT > 0) bannerT--;
-                    int ex = world.exitAt(player.x, player.y);
+                    if (exitCool > 0) exitCool--;
+                    int ex = (exitCool > 0) ? -1 : world.exitAt(player.x, player.y);
                     if (ex >= 0) {
                         transArea = ex;
                         transT = 40;
@@ -293,6 +305,24 @@ public class WorldCanvas extends GameCanvas implements Runnable {
             if (msgT > 0) msgT--;
             render(g);
             flushGraphics();
+            } catch (Throwable e) {
+                String why = describe(e);
+                try {
+                    g.setColor(0x000000);
+                    g.fillRect(0, 0, getWidth(), getHeight());
+                    g.setColor(0xFF5050);
+                    g.setFont(font);
+                    g.drawString("Error:", 4, 20, Graphics.TOP | Graphics.LEFT);
+                    g.setColor(0xFFFFFF);
+                    for (int i = 0; i * 28 < why.length() && i < 6; i++)
+                        g.drawString(why.substring(i * 28, Math.min(why.length(), i * 28 + 28)), 4, 40 + i * (font.getHeight() + 2),
+                                Graphics.TOP | Graphics.LEFT);
+                    flushGraphics();
+                } catch (Throwable t2) {
+                    // nothing more we can do
+                }
+                msgT = 0;
+            }
             long wait = FRAME_MS - (System.currentTimeMillis() - t0);
             if (wait < 5) wait = 5;
             try {
@@ -301,6 +331,12 @@ public class WorldCanvas extends GameCanvas implements Runnable {
                 // ignore
             }
         }
+    }
+
+    private static String describe(Throwable e) {
+        String m = e.getMessage();
+        String s = e.getClass().getName() + (m != null ? ": " + m : "");
+        return s.length() > 150 ? s.substring(0, 150) : s;
     }
 
     private void say(String text, int ticksToShow) {
@@ -495,6 +531,8 @@ public class WorldCanvas extends GameCanvas implements Runnable {
             g.setFont(font);
             g.drawString(transArea == World.FOREST ? "BLACKWOOD FOREST" : "THE CITY",
                     sw / 2, sh / 2 - font.getHeight() / 2, Graphics.TOP | Graphics.HCENTER);
+            g.setColor(0x8A9A8E);
+            g.drawString("Loading...", sw / 2, sh / 2 + font.getHeight(), Graphics.TOP | Graphics.HCENTER);
         }
     }
 

@@ -47,7 +47,10 @@ public class NpcManager {
             int pers = (r < 10) ? Npc.P_BRAVE : (r < 25) ? Npc.P_COWARD : (r < 40) ? Npc.P_FROZEN
                     : (r < 55) ? Npc.P_PANIC : Npc.P_NORMAL;
             npcs[i] = new Npc(px, py, rnd(NpcSprites.LOOKS), pers);
-            if (i % 6 == 2) npcs[i].kid = true;          // some of the pedestrians are children
+            if (i % 6 == 2) {                            // some of the pedestrians are children
+                npcs[i].kid = true;
+                npcs[i].look = rnd(NpcSprites.KIDS);
+            }
         }
     }
 
@@ -214,7 +217,7 @@ public class NpcManager {
             Npc n = npcs[i];
             if (n.state != Npc.DEAD) continue;
             Image im = n.kid ? NpcSprites.deadKid[n.look][(n.x + n.y) & 1] : NpcSprites.dead[n.look][(n.x + n.y) & 1];
-            int sx = n.x - im.getWidth() / 2 - camX, sy = n.y - (n.kid ? NpcSprites.KW - 3 : NpcSprites.W - 4) - camY;
+            int sx = n.x - im.getWidth() / 2 - camX, sy = n.y - im.getHeight() + (n.kid ? 3 : 4) - camY;
             if (sx > sw || sy > sh || sx + im.getWidth() < 0 || sy + im.getHeight() < 0) continue;
             g.drawImage(im, sx, sy, Graphics.TOP | Graphics.LEFT);
         }
