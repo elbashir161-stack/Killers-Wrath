@@ -16,8 +16,8 @@ public class NpcManager {
     public final int[] doorX;
     public final int[] doorY;
     public final int[] doorUse;
-    public Vehicle driven;              // the vehicle Killer is driving, or null
-    public boolean playerOnFoot = true; // people bump into Killer only when he walks
+    public Vehicle driven;
+    public boolean playerOnFoot = true;
     public int kills = 0;
 
     private final World world;
@@ -47,16 +47,13 @@ public class NpcManager {
             int pers = (r < 10) ? Npc.P_BRAVE : (r < 25) ? Npc.P_COWARD : (r < 40) ? Npc.P_FROZEN
                     : (r < 55) ? Npc.P_PANIC : Npc.P_NORMAL;
             npcs[i] = new Npc(px, py, rnd(NpcSprites.LOOKS), pers);
-            if (i % 6 == 2) {                            // some of the pedestrians are children
+            if (i % 6 == 2) {
                 npcs[i].kid = true;
                 npcs[i].look = rnd(NpcSprites.KIDS);
             }
         }
     }
 
-    // ---------------- placement ----------------
-
-    /** A random sidewalk spot between minD and maxD pixels from Killer, or null. */
     private int[] placeAround(Player k, int minD, int maxD) {
         int rad = maxD / World.TS + 1;
         for (int i = 0; i < 80; i++) {
@@ -86,16 +83,10 @@ public class NpcManager {
         }
     }
 
-    // ---------------- people are solid ----------------
-
-    /**
-     * Would a body (8x5 feet box) at nx,ny overlap another person? Bodies already overlapping may still
-     * move apart. self == null means the mover is Killer.
-     */
     public boolean blocks(int nx, int ny, int cx, int cy, Npc self) {
         for (int i = 0; i < npcs.length; i++) {
             Npc n = npcs[i];
-            if (n == self || n.state == Npc.INSIDE || n.state == Npc.DEAD) continue;
+            if (n == self || n.state == Npc.INSIDE || n.state == Npc.DEAD || n.state == Npc.DOWN || n.state == Npc.HURT) continue;
             if (Math.abs(nx - n.x) < 8 && Math.abs(ny - n.y) < 5
                     && !(Math.abs(cx - n.x) < 8 && Math.abs(cy - n.y) < 5)) return true;
         }
@@ -106,33 +97,29 @@ public class NpcManager {
         return false;
     }
 
-    /** Is a standing person at this exact point? (traffic uses it to stop in front of people) */
     public boolean personAtPoint(int px, int py) {
         for (int i = 0; i < npcs.length; i++) {
             Npc n = npcs[i];
-            if (n.state == Npc.INSIDE || n.state == Npc.DEAD) continue;
+            if (n.state == Npc.INSIDE || n.state == Npc.DEAD || n.state == Npc.DOWN) continue;
             if (Math.abs(px - n.x) < 8 && py > n.y - 14 && py < n.y + 2) return true;
         }
         return false;
     }
 
-    // ---------------- cars hit people ----------------
-
-    /** Called every tick while Killer drives: anyone the body touches at speed is hurt. */
     public void vehicleHit(Vehicle v) {
         int spd = v.sp < 0 ? -v.sp : v.sp;
-        if (spd < 24) return;
+        if (spd < 15) return;
         for (int i = 0; i < npcs.length; i++) {
             Npc n = npcs[i];
             if (n.state == Npc.DEAD || n.state == Npc.INSIDE) continue;
+            if (n.state == Npc.DOWN && n.downTimer > 55) continue;
             if (v.contains(n.x, n.y - 2) || v.contains(n.x, n.y - 9)) {
-                n.hurt((spd / 16) * 18, this, v.x, v.y);
+                n.hitByCar(spd, this, v.x, v.y);
                 v.sp = v.sp * 7 / 10;
             }
         }
     }
 
-    /** Someone was hurt: calm neighbours nearby get alarmed. */
     public void panicNear(int x, int y, int fx, int fy) {
         for (int i = 0; i < npcs.length; i++) {
             Npc n = npcs[i];
@@ -142,7 +129,6 @@ public class NpcManager {
         }
     }
 
-    /** A pedestrian shouts: calm neighbours within earshot become alarmed. */
     public void hear(Npc s) {
         for (int i = 0; i < npcs.length; i++) {
             Npc n = npcs[i];
@@ -154,7 +140,6 @@ public class NpcManager {
         }
     }
 
-    /** Nearest free house door that can be reached from the south side, or -1. */
     public int findDoor(int x, int y) {
         int best = -1, bestD = 320 * 320;
         for (int i = 0; i < world.doorCount; i++) {
@@ -169,8 +154,6 @@ public class NpcManager {
         }
         return best;
     }
-
-    // ---------------- blood ----------------
 
     public void addBlood(int x, int y, int size) {
         bloodX[bloodHead] = x;
@@ -205,7 +188,6 @@ public class NpcManager {
             }
     }
 
-    /** Blood pools and bodies lie on the ground, under everything that stands. */
     public void drawGround(Graphics g, int camX, int camY, int sw, int sh) {
         for (int i = 0; i < bloodN; i++) {
             Image im = bloodImg[bloodS[i]];
