@@ -10,7 +10,9 @@ public class TitleCanvas extends Canvas implements Runnable {
     private Thread thread;
     private volatile boolean running = false;
     private int w = 0, h = 0, horizon = 0;
-    private int tick = 0, sel = 0, mode = 0; // mode: 0 menu, 1 about, 2 loading
+    private int tick = 0, sel = 0, mode = 0; // mode: 0 menu, 1 about, 2 loading, 3 load list, 4 confirm new
+    private int loadSel = 0; // 0=autosave/latest, 1=slot1, 2=slot2, 3=slot3, 4=back
+    private int confirmSel = 0; // 0=No, 1=Yes
     private int flash = 0;
     private boolean hasSave;
     private final Font fBig = Font.getFont(Font.FACE_SYSTEM, Font.STYLE_BOLD, Font.SIZE_LARGE);
@@ -77,6 +79,26 @@ public class TitleCanvas extends Canvas implements Runnable {
             mode = 0;
             return;
         }
+        if (mode == 3) {
+            int ga = 0;
+            try { ga = getGameAction(keyCode); } catch (Exception e) {}
+            if (ga == UP) loadSel = (loadSel + 4) % 5;
+            else if (ga == DOWN) loadSel = (loadSel + 1) % 5;
+            else if (ga == FIRE || keyCode == KEY_NUM5) chooseLoad();
+            else if (keyCode == KEY_NUM0 || keyCode == KEY_STAR) mode = 0;
+            return;
+        }
+        if (mode == 4) {
+            int ga = 0;
+            try { ga = getGameAction(keyCode); } catch (Exception e) {}
+            if (ga == UP || ga == DOWN || ga == LEFT || ga == RIGHT) confirmSel = 1 - confirmSel;
+            else if (ga == FIRE || keyCode == KEY_NUM5) {
+                if (confirmSel == 1) midlet.startGame(-1);
+                else mode = 0;
+            }
+            else if (keyCode == KEY_NUM0 || keyCode == KEY_STAR) mode = 0;
+            return;
+        }
         int ga = 0;
         try {
             ga = getGameAction(keyCode);
@@ -94,6 +116,10 @@ public class TitleCanvas extends Canvas implements Runnable {
             mode = 0;
             return;
         }
+        if (mode == 3 || mode == 4) {
+            mode = 0;
+            return;
+        }
         int lineH = fMed.getHeight() + 5;
         int i = (y - itemY(0) + 3) / lineH;
         if (y >= itemY(0) - 3 && i >= 0 && i < ITEMS.length) {
@@ -102,11 +128,24 @@ public class TitleCanvas extends Canvas implements Runnable {
         }
     }
 
+    private void chooseLoad() {
+        if (loadSel == 4) { mode = 0; return; }
+        int slotToLoad = -2;
+        if (loadSel == 0) {
+            if (hasSave) slotToLoad = SaveManager.latestSlot();
+        } else {
+            SaveData d = SaveManager.load(loadSel);
+            if (d != null && d.used) slotToLoad = loadSel;
+        }
+        if (slotToLoad != -2) midlet.startGame(slotToLoad);
+    }
+
     private void choose() {
         if (sel == 0) {
-            if (hasSave) midlet.startGame(SaveManager.latestSlot());
+            if (hasSave) { loadSel = 0; mode = 3; }
         } else if (sel == 1) {
-            midlet.startGame(-1);
+            if (hasSave) { confirmSel = 0; mode = 4; }
+            else midlet.startGame(-1);
         } else if (sel == 2) {
             mode = 1;
         } else {
@@ -188,6 +227,8 @@ public class TitleCanvas extends Canvas implements Runnable {
         }
         title(g);
         if (mode == 2) loading(g);
+        else if (mode == 3) loadMenu(g);
+        else if (mode == 4) confirmMenu(g);
         else menu(g);
     }
 
@@ -346,7 +387,68 @@ public class TitleCanvas extends Canvas implements Runnable {
         }
         g.setFont(fSmall);
         g.setColor(0x3E4C44);
-        g.drawString("Up/Down  FIRE = select", w / 2, h - fSmall.getHeight() - 2, Graphics.TOP | Graphics.HCENTER);
+        // save info under Continue
+        if (hasSave) {
+            g.setColor(0x7A8C80);
+            g.drawString("Save: Slot " + SaveManager.latestSlot(), w / 2, itemY(0) + fMed.getHeight() + 1, Graphics.TOP | Graphics.HCENTER);
+        } else {
+            g.setColor(0x3E4C44);
+            g.drawString("No save yet", w / 2, itemY(0) + fMed.getHeight() + 1, Graphics.TOP | Graphics.HCENTER);
+        }
+        g.setColor(0x3E4C44);
+        g.drawString("Up/Down move  5/FIRE select", w / 2, h - fSmall.getHeight() * 2 - 4, Graphics.TOP | Graphics.HCENTER);
+        g.drawString("L: Pause  1: Map  F: Action  *: Menu", w / 2, h - fSmall.getHeight() - 2, Graphics.TOP | Graphics.HCENTER);
+    }
+
+    private void loadMenu(Graphics g) {
+        g.setFont(fMed);
+        g.setColor(0xE8C23A);
+        g.drawString("LOAD GAME", w / 2, itemY(0) - fMed.getHeight() - 4, Graphics.TOP | Graphics.HCENTER);
+        String[] items = new String[5];
+        items[0] = "Autosave (Slot " + SaveManager.latestSlot() + ")";
+        for (int i = 1; i <= 3; i++) {
+            SaveData d = SaveManager.load(i);
+            if (d != null && d.used) items[i] = "Slot " + i + " - Saved";
+            else items[i] = "Slot " + i + " - Empty";
+        }
+        items[4] = "Back";
+        for (int i = 0; i < 5; i++) {
+            boolean empty = (i >= 1 && i <= 3 && items[i].endsWith("Empty"));
+            String t = items[i];
+            if (i == loadSel) {
+                g.setColor(empty ? 0x6A5A20 : 0xE8C23A);
+                if ((tick / 8) % 2 == 0) t = "> " + t + " <";
+                else t = "  " + t + "  ";
+            } else {
+                g.setColor(empty ? 0x2A332E : 0x7A8C80);
+            }
+            g.drawString(t, w / 2, itemY(i + 1), Graphics.TOP | Graphics.HCENTER);
+        }
+        g.setFont(fSmall);
+        g.setColor(0x3E4C44);
+        g.drawString("Up/Down move  5/FIRE load  0 back", w / 2, h - fSmall.getHeight() - 2, Graphics.TOP | Graphics.HCENTER);
+    }
+
+    private void confirmMenu(Graphics g) {
+        g.setFont(fMed);
+        g.setColor(0xE8C23A);
+        g.drawString("NEW GAME?", w / 2, itemY(0), Graphics.TOP | Graphics.HCENTER);
+        g.setFont(fSmall);
+        g.setColor(0xB8C0A8);
+        g.drawString("This will overwrite your save.", w / 2, itemY(1), Graphics.TOP | Graphics.HCENTER);
+        g.drawString("Are you sure?", w / 2, itemY(1) + fSmall.getHeight() + 2, Graphics.TOP | Graphics.HCENTER);
+        String[] opts = {"No, keep my save", "Yes, start over"};
+        g.setFont(fMed);
+        for (int i = 0; i < 2; i++) {
+            String t = opts[i];
+            if (i == confirmSel) {
+                g.setColor(0xE8C23A);
+                if ((tick / 8) % 2 == 0) t = "> " + t + " <";
+            } else {
+                g.setColor(0x7A8C80);
+            }
+            g.drawString(t, w / 2, itemY(3 + i), Graphics.TOP | Graphics.HCENTER);
+        }
     }
 
     private void loading(Graphics g) {
