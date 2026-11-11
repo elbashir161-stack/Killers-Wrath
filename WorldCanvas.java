@@ -38,6 +38,8 @@ public class WorldCanvas extends GameCanvas implements Runnable {
     // pause menu: 0 none, 1 main, 2 save slots, 3 confirm quit, 4 big map
     private volatile int menuMode = 0;
     private int menuSel = 0;
+    private int lastMenuKeys = 0;
+    private int menuHold = 0;
     private final String[] slotLabel = new String[SaveManager.SLOTS];
 
     private String district = "";
@@ -160,8 +162,35 @@ public class WorldCanvas extends GameCanvas implements Runnable {
         }
         if (keyCode == KEY_POUND || keyCode == KEY_NUM0) interact = true;
     }
+    protected void keyRepeated(int keyCode) {
+        keyPressed(keyCode);
+    }
 
-    private void menuKey(int keyCode) {
+    private void pollMenuKeys() {
+        int ks = getKeyStates();
+        int pressed = ks & ~lastMenuKeys;
+        lastMenuKeys = ks;
+        if (ks == 0) {
+            menuHold = 0;
+            return;
+        }
+        if (pressed == 0) {
+            menuHold++;
+            if (menuHold < 10) return;
+            menuHold = 7;
+            pressed = ks;
+        } else {
+            menuHold = 0;
+        }
+        if (menuMode == 4) {
+            if ((pressed & FIRE_PRESSED) != 0) menuMode = 0;
+            return;
+        }
+        int n = (menuMode == 1) ? 3 : (menuMode == 2) ? SaveManager.SLOTS + 1 : 2;
+        if ((pressed & UP_PRESSED) != 0) menuSel = (menuSel + n - 1) % n;
+        else if ((pressed & DOWN_PRESSED) != 0) menuSel = (menuSel + 1) % n;
+        else if ((pressed & FIRE_PRESSED) != 0) menuSelect();
+            }
         if (menuMode == 4) {
             if (keyCode == -6 || keyCode == KEY_STAR || keyCode == KEY_NUM5 || keyCode == KEY_NUM1) {
                 menuMode = 0;
@@ -248,6 +277,10 @@ public class WorldCanvas extends GameCanvas implements Runnable {
         while (running) {
             long t0 = System.currentTimeMillis();
             try {
+                        try {
+            if (menuMode != 0) {
+                pollMenuKeys();
+            }
             if (menuMode == 0) {
                 if (transT > 0) {
                     transT--;
