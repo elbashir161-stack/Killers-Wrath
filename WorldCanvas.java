@@ -278,7 +278,6 @@ public class WorldCanvas extends GameCanvas implements Runnable {
         while (running) {
             long t0 = System.currentTimeMillis();
             try {
-                        try {
             if (menuMode != 0) {
                 pollMenuKeys();
             }
