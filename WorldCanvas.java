@@ -190,7 +190,8 @@ public class WorldCanvas extends GameCanvas implements Runnable {
         if ((pressed & UP_PRESSED) != 0) menuSel = (menuSel + n - 1) % n;
         else if ((pressed & DOWN_PRESSED) != 0) menuSel = (menuSel + 1) % n;
         else if ((pressed & FIRE_PRESSED) != 0) menuSelect();
-            }
+    }        
+        private void menuKey(int keyCode) {
         if (menuMode == 4) {
             if (keyCode == -6 || keyCode == KEY_STAR || keyCode == KEY_NUM5 || keyCode == KEY_NUM1) {
                 menuMode = 0;
