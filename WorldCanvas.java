@@ -12,7 +12,6 @@ public class WorldCanvas extends GameCanvas implements Runnable {
     private final SkidMarks skids = new SkidMarks();
     private final Font font = Font.getFont(Font.FACE_SYSTEM, Font.STYLE_BOLD, Font.SIZE_SMALL);
 
-    // the current area and the two areas (built when first visited)
     private World world, city, forest;
     private VehicleManager vehicles, cityVeh, forestVeh;
     private NpcManager npcs, cityNpcs, forestNpcs;
@@ -26,27 +25,24 @@ public class WorldCanvas extends GameCanvas implements Runnable {
     private String msg = null;
     private int msgT = 0;
     private int ticks = 0;
-    private int played = 0;          // play time in ticks (25 per second), saved
-    private int autoT = 0;           // counts up to the next autosave
+    private int played = 0;
+    private int autoT = 0;
     private int kills = 0;
-    private String menuNote = null;  // result of the last save, shown in the menu
+    private String menuNote = null;
     private boolean noteOk = true;
 
-    // area change: fade to black, switch in the middle, fade back
     private int transArea = -1;
     private int transT = 0;
     private int exitCool = 0;
 
-    // pause menu: 0 none, 1 main, 2 save slots, 3 confirm quit
+    // pause menu: 0 none, 1 main, 2 save slots, 3 confirm quit, 4 big map
     private volatile int menuMode = 0;
     private int menuSel = 0;
     private final String[] slotLabel = new String[SaveManager.SLOTS];
 
-    // district banner
     private String district = "";
     private int bannerT = 0;
 
-    // everything that stands in the world is drawn back-to-front (sorted by its feet / base line)
     private final int[] dk = new int[1024];
     private final int[] dt = new int[1024];
     private final int[] di = new int[1024];
@@ -80,7 +76,6 @@ public class WorldCanvas extends GameCanvas implements Runnable {
         use(w);
     }
 
-    /** Creates the people and vehicle managers for an area (the forest has none for now). */
     private void attach(World w, boolean starters) {
         boolean isCity = (w.area == World.CITY);
         VehicleManager vm = new VehicleManager(w, player, isCity ? 56 : 0, isCity && starters, isCity ? 14 : 0);
@@ -107,10 +102,9 @@ public class WorldCanvas extends GameCanvas implements Runnable {
         bannerT = 90;
     }
 
-    /** Leave the current area through its exit and appear at the other area's entrance. */
     private void switchArea(int target) {
         kills = npcs.kills;
-        if (driving != null) {              // the car stays behind
+        if (driving != null) {
             driving.driven = false;
             driving.sp = 0;
             driving = null;
@@ -151,10 +145,16 @@ public class WorldCanvas extends GameCanvas implements Runnable {
             menuKey(keyCode);
             return;
         }
-        if (keyCode == KEY_STAR) {
+        if (keyCode == KEY_STAR || keyCode == -6) {
             menuMode = 1;
             menuSel = 0;
             menuNote = null;
+            interact = false;
+            return;
+        }
+        if (keyCode == KEY_NUM1) {
+            menuMode = 4;
+            menuSel = 0;
             interact = false;
             return;
         }
@@ -162,17 +162,22 @@ public class WorldCanvas extends GameCanvas implements Runnable {
     }
 
     private void menuKey(int keyCode) {
+        if (menuMode == 4) {
+            if (keyCode == -6 || keyCode == KEY_STAR || keyCode == KEY_NUM5 || keyCode == KEY_NUM1) {
+                menuMode = 0;
+            }
+            return;
+        }
         int ga = 0;
         try {
             ga = getGameAction(keyCode);
         } catch (Exception e) {
-            // ignore
         }
         int n = (menuMode == 1) ? 3 : (menuMode == 2) ? SaveManager.SLOTS + 1 : 2;
         if (ga == UP) menuSel = (menuSel + n - 1) % n;
         else if (ga == DOWN) menuSel = (menuSel + 1) % n;
         else if (ga == FIRE || keyCode == KEY_NUM5) menuSelect();
-        else if (keyCode == KEY_STAR) {
+        else if (keyCode == KEY_STAR || keyCode == -6) {
             if (menuMode == 1) menuMode = 0;
             else { menuMode = 1; menuSel = 0; }
         }
@@ -236,8 +241,7 @@ public class WorldCanvas extends GameCanvas implements Runnable {
         menuMode = 1;
         menuSel = 1;
     }
-
-    // ---------------- main loop ----------------
+        // ---------------- main loop ----------------
 
     public void run() {
         Graphics g = getGraphics();
@@ -319,7 +323,6 @@ public class WorldCanvas extends GameCanvas implements Runnable {
                                 Graphics.TOP | Graphics.LEFT);
                     flushGraphics();
                 } catch (Throwable t2) {
-                    // nothing more we can do
                 }
                 msgT = 0;
             }
@@ -328,7 +331,6 @@ public class WorldCanvas extends GameCanvas implements Runnable {
             try {
                 Thread.sleep(wait);
             } catch (InterruptedException e) {
-                // ignore
             }
         }
     }
@@ -376,7 +378,6 @@ public class WorldCanvas extends GameCanvas implements Runnable {
         }
     }
 
-    /** A free place beside the vehicle (its sides first, then front and back) for Killer to stand. */
     private int[] exitSpot(Vehicle v) {
         int c = VehicleKit.COS[v.h], s = VehicleKit.SIN[v.h];
         int ds = v.wid() / 2 + 10, df = v.len() / 2 + 10;
@@ -434,7 +435,6 @@ public class WorldCanvas extends GameCanvas implements Runnable {
         pigeons.drawShadows(g, camX, camY, sw, sh);
         npcs.drawGround(g, camX, camY, sw, sh);
 
-        // collect everything that stands up and draw it back to front
         dn = 0;
         int tc = world.collectTrees(camX, camY, sw, sh);
         for (int i = 0; i < tc; i++) add(world.treeBaseY(world.treeBuf[i]), 0, world.treeBuf[i]);
@@ -472,7 +472,6 @@ public class WorldCanvas extends GameCanvas implements Runnable {
         pigeons.drawFlying(g, camX, camY, sw, sh);
         npcs.drawBubbles(g, font, camX, camY);
 
-        // HUD
         g.setFont(font);
         g.setColor(0x000000);
         g.fillRect(0, 0, sw, font.getHeight() + 2);
@@ -492,7 +491,7 @@ public class WorldCanvas extends GameCanvas implements Runnable {
             line = (spd * 90 / 256) + " km/h" + (driving.sp < 0 ? " R" : "") + "   # = get out";
         } else if (vehicles.nearest(player.x, player.y, 40) != null)
             line = (vehicles.nearest(player.x, player.y, 40).occupants > 0) ? "Occupied - can't get in" : "# = get in";
-        else if (ticks < 150) line = "Arrows: move  FIRE: run  *: menu";
+        else if (ticks < 150) line = "Arrows: move  FIRE: run  L: menu  1: map";
         if (line != null) {
             g.setColor(0x000000);
             g.fillRect(0, sh - font.getHeight() - 3, sw, font.getHeight() + 3);
@@ -511,7 +510,6 @@ public class WorldCanvas extends GameCanvas implements Runnable {
             g.drawString(district, sw / 2, by + 3, Graphics.TOP | Graphics.HCENTER);
         }
 
-        // minimap
         if (sw >= 160) {
             int mw = mini.getWidth(), mh = mini.getHeight();
             int mx = sw - mw - 3, my = sh - mh - font.getHeight() - 8;
@@ -522,9 +520,10 @@ public class WorldCanvas extends GameCanvas implements Runnable {
             g.fillRect(mx + player.x / (World.TS * World.MINI) - 1, my + player.y / (World.TS * World.MINI) - 1, 3, 3);
         }
 
-        if (menuMode != 0) drawMenu(g, sw, sh);
+        if (menuMode != 0 && menuMode != 4) drawMenu(g, sw, sh);
+        if (menuMode == 4) drawBigMap(g, sw, sh);
 
-        if (transT > 0) {                       // black screen with the name of where we are going
+        if (transT > 0) {
             g.setColor(0x000000);
             g.fillRect(0, 0, sw, sh);
             g.setColor(0xC41818);
@@ -534,6 +533,46 @@ public class WorldCanvas extends GameCanvas implements Runnable {
             g.setColor(0x8A9A8E);
             g.drawString("Loading...", sw / 2, sh / 2 + font.getHeight(), Graphics.TOP | Graphics.HCENTER);
         }
+    }
+        private void drawBigMap(Graphics g, int sw, int sh) {
+        g.setColor(0x000000);
+        g.fillRect(0, 0, sw, sh);
+        g.setFont(font);
+        int mw = mini.getWidth(), mh = mini.getHeight();
+        int sc = 1;
+        while (mw * (sc + 1) <= sw - 8 && mh * (sc + 1) <= sh - 32) sc++;
+        int dw = mw * sc, dh = mh * sc;
+        int mx = (sw - dw) / 2, my = (sh - dh) / 2 + 4;
+        try {
+            int[] src = new int[mw * mh];
+            mini.getRGB(src, 0, mw, 0, 0, mw, mh);
+            int[] dst = new int[dw * dh];
+            for (int y = 0; y < mh; y++) {
+                for (int x = 0; x < mw; x++) {
+                    int c = src[y * mw + x];
+                    for (int dy = 0; dy < sc; dy++) {
+                        int row = (y * sc + dy) * dw + x * sc;
+                        for (int dx = 0; dx < sc; dx++) dst[row + dx] = c;
+                    }
+                }
+            }
+            Image big = Image.createRGBImage(dst, dw, dh, true);
+            g.drawImage(big, mx, my, Graphics.TOP | Graphics.LEFT);
+        } catch (Throwable e) {
+            g.drawImage(mini, mx, my, Graphics.TOP | Graphics.LEFT);
+        }
+        g.setColor(0xFFFFFF);
+        g.drawRect(mx - 1, my - 1, dw + 1, dh + 1);
+        g.setColor(0xFF0000);
+        int dotX = mx + (player.x / (World.TS * World.MINI)) * sc;
+        int dotY = my + (player.y / (World.TS * World.MINI)) * sc;
+        g.fillRect(dotX - 1, dotY - 1, 3, 3);
+        g.setColor(0xE8C23A);
+        g.drawString(world.area == World.FOREST ? "BLACKWOOD FOREST - MAP" : "THE CITY - MAP", sw / 2, 2, Graphics.TOP | Graphics.HCENTER);
+        g.setColor(0xFFFFFF);
+        g.drawString(district, sw / 2, sh - font.getHeight() - 2, Graphics.TOP | Graphics.HCENTER);
+        g.setColor(0xAAAAAA);
+        g.drawString("1 / L / * = close", sw / 2, sh - (font.getHeight() + 2) * 2 - 2, Graphics.TOP | Graphics.HCENTER);
     }
 
     private void drawMenu(Graphics g, int sw, int sh) {
@@ -598,4 +637,4 @@ public class WorldCanvas extends GameCanvas implements Runnable {
             y += lineH;
         }
     }
-}
+    }
