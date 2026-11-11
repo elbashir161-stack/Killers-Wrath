@@ -514,7 +514,7 @@ public class WorldCanvas extends GameCanvas implements Runnable {
         } else {
             g.setColor(0xFFFFFF);
             g.drawString("Fleeing: " + npcs.count(Npc.FLEEING) + "  Hiding: " + npcs.count(Npc.INSIDE)
-                    + "  Down: " + npcs.kills, 4, 1, Graphics.TOP | Graphics.LEFT);
+        + "  Down: " + (npcs.kills + npcs.count(Npc.DOWN) + npcs.count(Npc.HURT)), 4, 1, Graphics.TOP | Graphics.LEFT);
         }
 
         String line = null;
