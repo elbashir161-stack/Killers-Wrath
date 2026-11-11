@@ -23,14 +23,11 @@ public class World {
             LILY = 60, CLIFF = 61, CLIFF_B = 62, WATERFALL = 63, FOAM = 64, BRIDGE_H = 65, BRIDGE_V = 66,
             CAVE_DARK = 67, CAMPFIRE = 68;
     private static final int B0 = 72, STYLES = 16;
-    // building tile parts (each style has PARTS tiles)
     private static final int P_TL = 0, P_T = 1, P_TR = 2, P_L = 3, P_C = 4, P_R = 5, P_BL = 6, P_B = 7, P_BR = 8,
             P_VENT = 9, P_AC = 10, P_SKY = 11, P_TANK = 12, P_CHIM = 13,
             P_WINM = 14, P_WINB = 15, P_WINX = 16, P_WALL = 17, P_WALLM = 18, P_GLASS = 19, P_AWN = 20,
             P_DLT = 21, P_DLM = 22, P_DLB = 23, P_DRT = 24, P_DRM = 25, P_DRB = 26, PARTS = 27;
 
-    // style = material set: roof texture (0 gravel, 1 corrugated, 2 shingle, 3 tar, 4 clay), wall texture
-    // (0 brick, 1 concrete, 2 stucco, 3 siding, 4 metal, 5 glass), accent colour (doors, awnings)
     private static final int[] ROOF_T = {2, 2, 2, 0, 1, 0, 3, 3, 0, 3, 3, 4, 3, 3, 3, 3};
     private static final int[] ROOF_C = {0x4A3A30, 0x3A3F44, 0x3E4A40, 0x4A4C4C, 0x6A4A32, 0x8C9490, 0x3C3F42, 0x2E3436,
             0x55585A, 0x4A3A2A, 0x2A2C2E, 0x8A6A2A, 0x3A4A3A, 0x30404A, 0x3A2E2E, 0x4A2A2A};
@@ -41,7 +38,6 @@ public class World {
             0x3A5A6A, 0x7A2A20, 0x1A1A1A, 0x2A5A4A, 0x2A4A32, 0x24384A, 0x2A2A2A, 0xCFCFC0};
     private static final int[] HOUSE_STYLES = {0, 1, 2, 3, 13, 14, 12};
 
-    // roads (centre, width)
     private static final int[] VX = {19, 165, 287, 387, 471, 570, 628};
     private static final int[] VW = {8, 9, 8, 12, 8, 8, 8};
     private static final int[] HY = {27, 93, 165, 237, 310};
@@ -60,7 +56,6 @@ public class World {
     private final int[] pathRow = new int[MAXDOORS];
     public int doorCount = 0;
 
-    // car-park bays (centres in px) and the vehicle / people systems
     public final int[] stallX = new int[8192];
     public final int[] stallY = new int[8192];
     public int stallCount = 0;
@@ -74,9 +69,8 @@ public class World {
 
     private int seed = 20261107;
     private int sd = 5;
-    private int lbx, lby, lbw, lbh; // last landmark building
+    private int lbx, lby, lbw, lbh;
 
-    /** area = CITY or FOREST. */
     public World(int area) {
         this.area = area;
         mw = (area == FOREST) ? 320 : 640;
@@ -93,8 +87,6 @@ public class World {
         else generate();
     }
 
-    // ===================== queries =====================
-
     public int tileAt(int tx, int ty) {
         if (tx < 0 || ty < 0 || tx >= mw || ty >= mh) return -1;
         return map[ty * mw + tx];
@@ -105,7 +97,6 @@ public class World {
         return t == SIDEWALK || t == SIDEWALK2;
     }
 
-    /** Solid for people on foot: terrain plus parked vehicles. */
     public boolean solidAt(int px, int py) {
         return solidTerrain(px, py) || (vehicles != null && vehicles.hitParked(px, py));
     }
@@ -115,7 +106,6 @@ public class World {
         return solidT[map[(py / TS) * mw + (px / TS)]];
     }
 
-    /** Hard ground (road, pavement, car park...): tyre tracks show here. */
     public boolean isHardGround(int px, int py) {
         int t = tileAt(px / TS, py / TS);
         return t == SIDEWALK || t == SIDEWALK2 || t == PATH || (t >= ROAD && t <= PLAZA && t != 12 + 100)
@@ -123,13 +113,11 @@ public class World {
                 || t == TRASH || t == ROAD_B || t == ROAD_C;
     }
 
-    /** Name of the part of the city at this pixel position (shown on screen and in save slots). */
     public String districtName(int px, int py) {
         if (area == FOREST) return forestName(px / TS, py / TS);
         return cityDistrict(px, py);
     }
 
-    /** City district names (static so a save slot can show them without building the city). */
     public static String cityDistrict(int px, int py) {
         int tx = px / TS, ty = py / TS;
         if (isWater(tx, ty)) return "Riverside";
@@ -162,7 +150,6 @@ public class World {
         }
     }
 
-    /** Nearest standing place to (px,py) that is not inside a wall, tree or water. */
     public int[] safeSpot(int px, int py) {
         for (int r = 0; r < 40; r++) {
             for (int dy = -r; dy <= r; dy++) {
@@ -176,8 +163,6 @@ public class World {
         }
         return entryPoint();
     }
-
-    // ===================== drawing =====================
 
     public void draw(Graphics g, int camX, int camY, int sw, int sh) {
         int tx0 = camX / TS, ty0 = camY / TS;
@@ -197,7 +182,6 @@ public class World {
         }
     }
 
-    /** Fills treeBuf with the trees that can be seen; returns how many. Each entry is ty * mw + tx. */
     public int collectTrees(int camX, int camY, int sw, int sh) {
         int n = 0;
         int tx0 = camX / TS - 4, tx1 = (camX + sw) / TS + 4;
@@ -248,8 +232,6 @@ public class World {
         return Image.createRGBImage(px, w, h, false);
     }
 
-    // ===================== generation =====================
-
     private int rnd(int n) {
         seed = seed * 1103515245 + 12345;
         return ((seed >>> 16) & 0x7FFF) % n;
@@ -261,7 +243,6 @@ public class World {
     private static int hhi(int i) { return hlo(i) + HW[i] - 1; }
     private static int vtop(int i) { return i >= 5 ? hlo(1) : 0; }
 
-    // ---- traffic helpers: which road covers a tile, and where its lanes are (drive on the right) ----
     public static int hRoadAt(int ty) {
         for (int i = 0; i < 5; i++) if (ty >= hlo(i) && ty <= hhi(i)) return i;
         return -1;
@@ -273,7 +254,6 @@ public class World {
         return -1;
     }
 
-    /** True if this pixel row lies along the length of vertical road j (not at its ends). */
     public static boolean vRoadRows(int j, int py) {
         int ty = py / TS;
         return ty >= vtop(j) + 2 && ty < hlo(4) - 2;
@@ -336,7 +316,7 @@ public class World {
 
     private void block(int c, int r) {
         int x0 = bx0(c), x1 = bx1(c), y0 = by0(r), y1 = by1(r);
-        if (r >= 0 && r <= 1 && c >= 6) return;           // belongs to airport / forest on the right
+        if (r >= 0 && r <= 1 && c >= 6) return;
         if (r == 0 && c == 5) { forest(x0, y0, mw - 1, y1); return; }
         if (r == 1 && c == 5) { airport(x0, y0, mw - 2, y1); return; }
         if (r == 5 || c == 0 || c == 7) { forest(x0, y0, x1, y1); return; }
@@ -392,8 +372,6 @@ public class World {
         }
     }
 
-    // ---------------- block types ----------------
-
     private void tree(int tx, int ty) {
         if (get(tx, ty) == GRASS) set(tx, ty, TREE);
     }
@@ -436,7 +414,7 @@ public class World {
                 int hx = lx + (lw - hw) / 2, hy = ly + 2 + rnd(3);
                 if (rnd(100) < 85 && dry(hx, hy, hw, hh + 3)) {
                     int style = HOUSE_STYLES[rnd(HOUSE_STYLES.length)];
-                    if (rnd(100) < 45) {                         // an annex makes an L-shaped house
+                    if (rnd(100) < 45) {
                         int ww = 5 + rnd(3), wh = hh - 2;
                         boolean left = rnd(2) == 0;
                         int wx = left ? hx - ww : hx + hw;
@@ -451,7 +429,6 @@ public class World {
         }
     }
 
-    /** Wooden fence along the back and one side of a lot; the front stays open. */
     private void fenceLot(int lx, int ly, int lw, int ld) {
         for (int x = lx; x < lx + lw; x++) if (get(x, ly) == GRASS) set(x, ly, FENCE_H);
         for (int y = ly; y < ly + ld - 8; y++) if (get(lx, y) == GRASS) set(lx, y, FENCE_V);
@@ -465,7 +442,6 @@ public class World {
                 set(x, y, stall ? PARK_LINE : PARKING);
             }
         }
-        // remember each bay so vehicles can be parked in them
         for (int y = y0; y + 4 <= y1; y++) {
             int m = (y - y0) % 12;
             if (m != 0 && m != 7) continue;
@@ -478,7 +454,6 @@ public class World {
         }
     }
 
-    /** One main building near the top of the block, a plaza and car park in front. */
     private void landmark(int x0, int y0, int x1, int y1, int w, int h, int style, int fac,
                           String label, int lotRows) {
         if (fac < 3) fac = 3;
@@ -500,7 +475,6 @@ public class World {
         lbx = bx; lby = by; lbw = w; lbh = h;
     }
 
-    /** Dumpsters, barrels and crates beside a shop. */
     private void junk(int bx, int by, int bw, int bh, int fac) {
         int yy = by + bh + fac - 2;
         if (rnd(100) < 75) {
@@ -556,7 +530,7 @@ public class World {
                 int style = towerStyles[rnd(towerStyles.length)];
                 int bx = x0 + c * cw + (cw - w) / 2, by = y0 + r * ch + 2;
                 building(bx, by, w, h, style, 4, null, true);
-                if (w >= 14 && h >= 9) building(bx + 3, by + 2, w - 6, h - 5, style, 0, null, false); // raised top
+                if (w >= 14 && h >= 9) building(bx + 3, by + 2, w - 6, h - 5, style, 0, null, false);
             }
         }
     }
@@ -579,12 +553,6 @@ public class World {
         fill(x0, y1 - 10, x1, y1, PLAZA);
     }
 
-    // ---------------- buildings ----------------
-
-    /**
-     * Roof (w x h tiles) with random rooftop details, plus a south wall of 'fac' rows with windows, bars or boards,
-     * and an awning on shops. A building with a door gets a double door 2 tiles wide and 3 tall (taller than a person).
-     */
     private void building(int x, int y, int w, int h, int style, int fac, String label, boolean door) {
         if (door && fac < 3) fac = 3;
         int base = B0 + style * PARTS;
@@ -602,14 +570,14 @@ public class World {
                 else if (r) part = P_R;
                 else {
                     part = P_C;
-                    if (w >= 6 && h >= 5 && rnd(100) < 6) part = P_VENT + rnd(5);   // vent, AC, skylight, tank, chimney
+                    if (w >= 6 && h >= 5 && rnd(100) < 6) part = P_VENT + rnd(5);
                 }
                 set(x + i, y + j, base + part);
             }
         }
         boolean glass = (WALL_T[style] == 5);
         boolean awning = (label != null && !glass) || rnd(100) < 12;
-        int winKind = rnd(4);                       // 0,1 plain  2 barred  3 mixed with boarded-up
+        int winKind = rnd(4);
         int doorCol = x + w / 2 - 1;
         for (int k = 0; k < fac; k++) {
             boolean winRow = (fac >= 4 && k >= 1) || (fac == 3 && k == 1);
@@ -631,7 +599,7 @@ public class World {
         }
         if (door && fac > 0 && doorCount < MAXDOORS) {
             int ar = y + h + fac;
-            doorX[doorCount] = (doorCol + 1) * TS;       // middle of the double door
+            doorX[doorCount] = (doorCol + 1) * TS;
             doorY[doorCount] = ar * TS + 8;
             pathCol[doorCount] = doorCol;
             pathRow[doorCount] = ar;
@@ -640,7 +608,6 @@ public class World {
         if (label != null && fac > 0) addSign(label, (x + w / 2) * TS + 8, (y + h) * TS - 6, 0);
     }
 
-    /** Lay a 2-tile-wide paved walkway from every door down to the pavement or road. */
     private void extendPaths() {
         for (int i = 0; i < doorCount; i++) {
             int col = pathCol[i], r0 = pathRow[i];
@@ -684,8 +651,6 @@ public class World {
         if (t.equals("WEAPONS")) return 0x111111;
         return 0x1B2A55;
     }
-
-    // ---------------- roads ----------------
 
     private void roads() {
         int bottom = hlo(4) - 1;
@@ -749,7 +714,6 @@ public class World {
                 }
             }
         }
-        // street lamps on the outer edge of the pavements
         for (int i = 0; i < 5; i++) {
             int yN = hlo(i) - 2, yS = hhi(i) + 2;
             for (int tx = 10; tx < mw; tx += 28) {
@@ -766,7 +730,6 @@ public class World {
         }
     }
 
-    /** Manholes, puddles, cones and rubbish. */
     private void litter() {
         for (int i = 0; i < 90; i++) {
             int tx = rnd(mw), ty = rnd(mh);
@@ -792,7 +755,6 @@ public class World {
         }
     }
 
-    /** Last step: worn patches on roads, dead grass, cracked pavement. */
     private void weather() {
         for (int ty = 0; ty < mh; ty++) {
             for (int tx = 0; tx < mw; tx++) {
@@ -810,8 +772,6 @@ public class World {
             }
         }
     }
-
-    // ===================== tile art =====================
 
     private static void col(Graphics g, int c) { g.setColor(c & 0xFFFFFF); }
     private static int a(int c, int pct) { return Gfx.adj(c, pct); }
@@ -917,7 +877,6 @@ public class World {
         return im;
     }
 
-    /** 0 plain, 1 yellow vertical, 2 yellow horizontal, 3 white vertical, 4 white horizontal, 5/6 zebra, 7 cracked, 8 patched. */
     private Image road(int k) {
         Image im = flat(0x2A2C2E, 0x353739);
         Graphics g = im.getGraphics();
@@ -959,8 +918,6 @@ public class World {
         return im;
     }
 
-    // ---- props (each sits on its own concrete / grass / asphalt pad) ----
-
     private Image fenceH() {
         Image im = grass(0);
         Graphics g = im.getGraphics();
@@ -983,55 +940,60 @@ public class World {
         return im;
     }
 
+    // ---- 3/4 Perspective Upgraded Props ----
+
     private Image dumpster(boolean left) {
         Image im = flat(0x4A4C48, 0x3E403C);
         Graphics g = im.getGraphics();
-        int x0 = left ? 2 : 0, x1 = left ? 15 : 13;
-        col(g, 0x2A4A3C); g.fillRect(x0, 3, x1 - x0 + 1, 10);
-        col(g, 0x1C3328); g.fillRect(x0, 11, x1 - x0 + 1, 2);
-        col(g, 0x3A6A54); g.fillRect(x0, 3, x1 - x0 + 1, 2);
-        col(g, 0x14231C); g.fillRect(x0, 7, x1 - x0 + 1, 1);
-        col(g, 0x6A4A32); g.fillRect(x0 + 3, 9, 3, 1);
+        col(g, 0x55000000); g.fillArc(1, 10, 14, 5, 0, 360);
+        col(g, 0x1C3328); g.fillRect(2, 4, 12, 9);
+        col(g, 0x2A4A3C); g.fillRect(2, 4, 12, 3);
+        col(g, 0x3A6A54); g.fillRect(3, 5, 10, 2);
+        col(g, 0x14231C); g.fillRect(2, 8, 12, 1);
         return im;
     }
 
     private Image barrel() {
         Image im = flat(0x4A4C48, 0x3E403C);
         Graphics g = im.getGraphics();
-        col(g, 0x6A3A2A); g.fillArc(2, 2, 12, 12, 0, 360);
-        col(g, 0x8A5036); g.drawArc(2, 2, 11, 11, 0, 360);
-        col(g, 0x3A1E14); g.fillArc(4, 4, 8, 8, 0, 360);
-        col(g, 0x241008); g.fillArc(6, 6, 4, 4, 0, 360);
+        col(g, 0x44000000); g.fillArc(2, 11, 12, 4, 0, 360);
+        col(g, 0x3A1E14); g.fillRect(3, 3, 10, 11);
+        col(g, 0x6A3A2A); g.fillRect(4, 3, 8, 11);
+        col(g, 0x8A5036); g.fillRect(4, 3, 2, 11);
+        col(g, 0x1A1A1A); g.fillRect(3, 5, 10, 1); g.fillRect(3, 10, 10, 1);
         return im;
     }
 
     private Image crate() {
         Image im = flat(0x4A4C48, 0x3E403C);
         Graphics g = im.getGraphics();
-        col(g, 0x6E5A3A); g.fillRect(2, 2, 12, 12);
-        col(g, 0x4E3E28); g.drawRect(2, 2, 11, 11);
-        g.drawLine(2, 2, 13, 13); g.drawLine(13, 2, 2, 13);
-        col(g, 0x8A7450); g.fillRect(3, 3, 2, 1);
+        col(g, 0x44000000); g.fillArc(2, 11, 12, 4, 0, 360);
+        col(g, 0x4E3E28); g.fillRect(2, 3, 12, 11);
+        col(g, 0x6E5A3A); g.fillRect(3, 4, 10, 9);
+        col(g, 0x4E3E28); g.drawLine(3, 4, 12, 12); g.drawLine(12, 4, 3, 12);
         return im;
     }
 
     private Image cone() {
         Image im = road(0);
         Graphics g = im.getGraphics();
-        col(g, 0x1A1B1D); g.fillArc(3, 4, 11, 10, 0, 360);
-        col(g, 0xB85A1A); g.fillArc(4, 3, 9, 9, 0, 360);
-        col(g, 0xD8D0B8); g.fillArc(6, 5, 5, 5, 0, 360);
-        col(g, 0xB85A1A); g.fillArc(7, 6, 3, 3, 0, 360);
+        col(g, 0x44000000); g.fillArc(3, 11, 10, 4, 0, 360);
+        col(g, 0x1A1B1D); g.fillRect(3, 11, 10, 3);
+        col(g, 0x984212); g.fillTriangle(8, 2, 4, 12, 12, 12);
+        col(g, 0xD85A1A); g.fillTriangle(8, 2, 5, 12, 8, 12);
+        col(g, 0xD8D0B8); g.fillRect(6, 7, 4, 2);
         return im;
     }
 
     private Image lamp() {
         Image im = paved(0x5E5C54, 0x4C4A44, false);
         Graphics g = im.getGraphics();
-        col(g, 0x2A2C2E); g.fillArc(4, 4, 9, 9, 0, 360);
-        col(g, 0x3E4044); g.fillArc(5, 4, 7, 7, 0, 360);
-        col(g, 0xC8B45A); g.fillRect(7, 6, 3, 3);
-        col(g, 0x77703E); g.drawArc(2, 2, 13, 13, 0, 360);
+        col(g, 0x44000000); g.fillArc(2, 10, 12, 5, 0, 360);
+        col(g, 0x2A2C2E); g.fillRect(7, 3, 2, 11);
+        col(g, 0x5E6064); g.fillRect(7, 3, 1, 11);
+        col(g, 0x1A1C1E); g.fillArc(4, 1, 8, 6, 0, 360);
+        col(g, 0x3E4044); g.fillArc(5, 2, 6, 4, 0, 360);
+        col(g, 0xFFF0A0); g.fillRect(6, 4, 4, 2);
         return im;
     }
 
@@ -1056,9 +1018,11 @@ public class World {
     private Image bin() {
         Image im = paved(0x5E5C54, 0x4C4A44, false);
         Graphics g = im.getGraphics();
-        col(g, 0x242B26); g.fillArc(3, 3, 10, 10, 0, 360);
-        col(g, 0x3C4842); g.fillArc(4, 4, 8, 8, 0, 360);
-        col(g, 0x1A201C); g.fillArc(6, 6, 4, 4, 0, 360);
+        col(g, 0x44000000); g.fillArc(2, 11, 12, 4, 0, 360);
+        col(g, 0x1A201C); g.fillRect(3, 4, 10, 9);
+        col(g, 0x2C3832); g.fillRect(4, 4, 8, 9);
+        col(g, 0x485850); g.fillRect(4, 4, 2, 9);
+        col(g, 0x141814); g.fillRect(2, 3, 12, 2);
         return im;
     }
 
@@ -1070,9 +1034,6 @@ public class World {
         return im;
     }
 
-    // ===================== areas: city exit road, gates =====================
-
-    /** The city's only way out: a road running south from the highway to the edge of the map. */
     private void cityExitRoad() {
         for (int ty = 316; ty < mh; ty++) {
             for (int tx = 317; tx <= 323; tx++) set(tx, ty, ROAD);
@@ -1081,18 +1042,15 @@ public class World {
         addSign("BLACKWOOD FOREST", 310 * TS, 336 * TS, 0x1E4A2E);
     }
 
-    /** Where to start a brand new game (city only). */
     public int[] startPoint() {
         return new int[] {380 * TS + 8, 120 * TS + 8};
     }
 
-    /** Where Killer appears when he arrives from the other area. */
     public int[] entryPoint() {
         if (area == FOREST) return new int[] {160 * TS + 8, 14 * TS};
         return new int[] {320 * TS + 8, (mh - 12) * TS};
     }
 
-    /** Returns the area to go to if this spot is an exit, otherwise -1. */
     public int exitAt(int px, int py) {
         int tx = px / TS, ty = py / TS;
         if (area == CITY) {
@@ -1119,8 +1077,6 @@ public class World {
         return 0x2A3E26;
     }
 
-    // ===================== the forest area =====================
-
     private final int[] tpx = new int[2400];
     private final int[] tpy = new int[2400];
     private final boolean[] tvert = new boolean[2400];
@@ -1130,23 +1086,20 @@ public class World {
         return t == FGRASS || t == FGRASS2 || t == FGRASS3;
     }
 
-    /** Big, dense, dark forest: clearings, cliffs with caves, a waterfall and river, ponds, trails, rocks and logs. */
     private void generateForest() {
-        byte[] zone = new byte[mw * mh];      // 1 = on a trail, 2 = open clearing
+        byte[] zone = new byte[mw * mh];
         for (int ty = 0; ty < mh; ty++) {
             for (int tx = 0; tx < mw; tx++) {
                 int r = rnd(100);
                 set(tx, ty, r < 60 ? FGRASS : (r < 82 ? FGRASS2 : FGRASS3));
             }
         }
-        // thick wall of undergrowth round the whole forest (the gate in the north is cut through it later)
         for (int ty = 0; ty < mh; ty++)
             for (int tx = 0; tx < mw; tx++)
                 if (tx < 6 || tx >= mw - 6 || ty < 6 || ty >= mh - 6) set(tx, ty, BRUSH);
         for (int i = 8; i < mw - 8; i += 5) { set(i, 2, TREE); set(i + 2, mh - 3, TREE); }
         for (int i = 8; i < mh - 8; i += 5) { set(2, i, TREE); set(mw - 3, i, TREE); }
 
-        // trails: main one from the city gate, west to the old cave, east to the dark cave, two closed ones south
         tn = 0;
         trailPts(new int[] {160, 160, 152, 158, 160}, new int[] {0, 24, 52, 84, 104});
         trailPts(new int[] {152, 118, 84, 52, 42}, new int[] {62, 58, 46, 34, 30});
@@ -1157,7 +1110,6 @@ public class World {
         int[][] cl = {{160, 112, 46}, {62, 92, 18}, {246, 112, 16}, {118, 170, 20}, {200, 204, 16}, {150, 42, 12}, {40, 160, 14}};
         for (int i = 0; i < cl.length; i++) zdisc(zone, cl[i][0], cl[i][1], cl[i][2], 2, true);
 
-        // cliffs: two caves and a waterfall
         cliff(28, 12, 54, 28);
         fill(40, 22, 41, 28, CAVE_DARK);
         cliff(284, 14, 312, 34);
@@ -1166,7 +1118,6 @@ public class World {
         fill(252, 8, 255, 22, WATERFALL);
         fill(250, 23, 257, 23, FOAM);
 
-        // the river runs from the waterfall down to a pond; ponds and a lake
         int[] rx = {254, 256, 262, 270, 270, 252, 236};
         int[] ry = {25, 46, 68, 92, 118, 142, 160};
         river(rx, ry, rx.length);
@@ -1176,11 +1127,9 @@ public class World {
         pond(280, 150, 12, 8, zone);
         pond(30, 110, 9, 6, zone);
 
-        // trails over everything; where one meets water it becomes a wooden bridge
         for (int i = 0; i < tn; i++) trailDisc(tpx[i], tpy[i], tvert[i]);
         for (int y = 0; y < 10; y++) if (y % 6 < 4) set(160, y, ROAD_VY);
 
-        // the south trails are closed (the world map comes later)
         for (int x = 98; x <= 110; x += 2) boulder(x, 224);
         for (int x = 208; x <= 220; x += 2) boulder(x, 226);
 
@@ -1292,9 +1241,8 @@ public class World {
         return true;
     }
 
-    /** Trees, bushes, ferns, mushrooms, flowers, stumps, logs and rocks. */
     private void forestDecor(byte[] zone) {
-        for (int gy = 8; gy < mh - 8; gy += 4) {                       // trees: dense woods, sparse clearings
+        for (int gy = 8; gy < mh - 8; gy += 4) {
             for (int gx = 8; gx < mw - 8; gx += 4) {
                 int tx = gx + rnd(4), ty = gy + rnd(4);
                 int z = zone[ty * mw + tx];
@@ -1307,7 +1255,7 @@ public class World {
                 if (!isFloor(map[ty * mw + tx])) continue;
                 int z = zone[ty * mw + tx];
                 int r = rnd(1000);
-                if (z == 1) {                                          // trail verge: ferns and pebbles only
+                if (z == 1) {
                     if (r < 14) set(tx, ty, FERN);
                     else if (r < 24) set(tx, ty, PEBBLES);
                     continue;
@@ -1321,7 +1269,7 @@ public class World {
                 acc += 3; if (r < acc) set(tx, ty, ROCK);
             }
         }
-        for (int i = 0; i < 300; i++) {                                // flower patches
+        for (int i = 0; i < 300; i++) {
             int cx = 10 + rnd(mw - 20), cy = 10 + rnd(mh - 20);
             int kind = FLOWER_W + rnd(4);
             for (int k = 0; k < 9; k++) {
@@ -1329,11 +1277,11 @@ public class World {
                 if (isFloor(get(tx, ty))) set(tx, ty, kind);
             }
         }
-        for (int i = 0; i < 200; i++) {                                // boulders
+        for (int i = 0; i < 200; i++) {
             int tx = 9 + rnd(mw - 20), ty = 9 + rnd(mh - 20);
             if (floor2x2(zone, tx, ty)) boulder(tx, ty);
         }
-        for (int i = 0; i < 150; i++) {                                // fallen logs
+        for (int i = 0; i < 150; i++) {
             int tx = 9 + rnd(mw - 20), ty = 9 + rnd(mh - 20);
             if (zone[ty * mw + tx] != 1 && zone[ty * mw + tx + 1] != 1
                     && isFloor(get(tx, ty)) && isFloor(get(tx + 1, ty))) {
@@ -1342,8 +1290,6 @@ public class World {
             }
         }
     }
-
-    // ===================== forest tile art =====================
 
     private void forestTiles() {
         tiles[DIRT] = dirt(0);
@@ -1383,8 +1329,8 @@ public class World {
         col(g, base); g.fillRect(0, 0, TS, TS);
         speck(g, a(base, 125), 10);
         speck(g, a(base, 72), 12);
-        if (v == 1) { speck(g, 0x5A4426, 7); speck(g, 0x44341C, 5); }                       // fallen leaves
-        if (v == 2) { col(g, 0x34502C); g.fillRect(2, 9, 5, 3); g.fillRect(9, 3, 4, 3); speck(g, 0x3E6234, 8); } // moss
+        if (v == 1) { speck(g, 0x5A4426, 7); speck(g, 0x44341C, 5); }
+        if (v == 2) { col(g, 0x34502C); g.fillRect(2, 9, 5, 3); g.fillRect(9, 3, 4, 3); speck(g, 0x3E6234, 8); }
         return im;
     }
 
@@ -1591,23 +1537,21 @@ public class World {
         return im;
     }
 
-    // ---- roofs ----
-
     private Image roof(int style, int part) {
         Image im = tile();
         Graphics g = im.getGraphics();
         int base = ROOF_C[style], type = ROOF_T[style];
         sd = style * 31 + 7;
         col(g, base); g.fillRect(0, 0, TS, TS);
-        if (type == 0) {                                      // gravel
+        if (type == 0) {
             speck(g, a(base, 120), 16); speck(g, a(base, 80), 16);
-        } else if (type == 1) {                               // corrugated metal
+        } else if (type == 1) {
             for (int x = 0; x < TS; x += 4) {
                 col(g, a(base, 116)); g.fillRect(x, 0, 2, TS);
                 col(g, a(base, 84)); g.fillRect(x + 2, 0, 2, TS);
             }
             speck(g, 0x5A3A22, 6);
-        } else if (type == 2) {                               // shingles
+        } else if (type == 2) {
             for (int r = 0; r < 4; r++) {
                 int y = r * 4, xo = (r % 2 == 0) ? 0 : 4;
                 col(g, a(base, 82)); g.fillRect(0, y + 3, TS, 1);
@@ -1615,10 +1559,10 @@ public class World {
                 col(g, a(base, 72));
                 for (int x = xo; x < TS; x += 8) g.fillRect(x, y, 1, 3);
             }
-        } else if (type == 3) {                               // tar and seams
+        } else if (type == 3) {
             col(g, a(base, 78)); g.fillRect(0, 7, TS, 1); g.fillRect(11, 0, 1, TS);
             speck(g, a(base, 120), 8);
-        } else {                                              // clay tiles
+        } else {
             for (int r = 0; r < 3; r++) {
                 int y = r * 5 + 1;
                 col(g, a(base, 120)); g.fillRect(0, y, TS, 1);
@@ -1670,11 +1614,9 @@ public class World {
         return im;
     }
 
-    // ---- walls ----
-
     private void wallTexture(Graphics g, int type, int base) {
         col(g, base); g.fillRect(0, 0, TS, TS);
-        if (type == 0) {                                      // brick
+        if (type == 0) {
             col(g, a(base, 70));
             for (int y = 3; y < TS; y += 4) g.fillRect(0, y, TS, 1);
             for (int r = 0; r < 4; r++) {
@@ -1682,17 +1624,17 @@ public class World {
                 for (int x = xo; x < TS; x += 8) g.fillRect(x, r * 4, 1, 3);
             }
             speck(g, a(base, 122), 6); speck(g, a(base, 84), 6);
-        } else if (type == 1) {                               // concrete panels
+        } else if (type == 1) {
             col(g, a(base, 82)); g.fillRect(0, 7, TS, 1); g.fillRect(7, 0, 1, TS);
             speck(g, a(base, 112), 8); speck(g, a(base, 84), 8);
-        } else if (type == 2) {                               // stucco
+        } else if (type == 2) {
             speck(g, a(base, 116), 18); speck(g, a(base, 84), 18);
-        } else if (type == 3) {                               // siding
+        } else if (type == 3) {
             for (int y = 0; y < TS; y += 4) {
                 col(g, a(base, 116)); g.fillRect(0, y, TS, 1);
                 col(g, a(base, 80)); g.fillRect(0, y + 3, TS, 1);
             }
-        } else if (type == 4) {                               // metal panels
+        } else if (type == 4) {
             col(g, a(base, 84));
             for (int x = 0; x < TS; x += 4) g.fillRect(x, 0, 1, TS);
             speck(g, 0x6A4A32, 7);
@@ -1717,7 +1659,6 @@ public class World {
         if (part == P_WINM || part == P_WINB || part == P_WINX) windowArt(g, part);
         else if (part == P_AWN) awningArt(g, ACC_C[style]);
         else if (part >= P_DLT) doorArt(g, part, ACC_C[style]);
-        // grime where the wall meets the ground
         if (part == P_WALLM || part == P_WINM || part == P_WINB || part == P_WINX || part == P_DLB || part == P_DRB) {
             col(g, a(wall, 70)); g.fillRect(0, 14, TS, 2);
         }
@@ -1725,21 +1666,21 @@ public class World {
     }
 
     private void windowArt(Graphics g, int part) {
-        col(g, 0x24262A); g.fillRect(4, 3, 8, 9);                  // frame
-        if (part == P_WINX) {                                      // boarded up
+        col(g, 0x24262A); g.fillRect(4, 3, 8, 9);
+        if (part == P_WINX) {
             col(g, 0x5E4C34); g.fillRect(5, 4, 6, 7);
             col(g, 0x44362A); g.fillRect(5, 6, 6, 1); g.fillRect(5, 9, 6, 1);
             col(g, 0x8A7450); g.fillRect(5, 4, 6, 1);
             return;
         }
-        col(g, 0x35504E); g.fillRect(5, 4, 6, 7);                  // dirty glass
+        col(g, 0x35504E); g.fillRect(5, 4, 6, 7);
         col(g, 0x5E8280); g.fillRect(5, 4, 2, 1);
         col(g, 0x24262A); g.fillRect(8, 4, 1, 7);
-        if (part == P_WINB) {                                      // security bars
+        if (part == P_WINB) {
             col(g, 0x8A8C88);
             g.fillRect(5, 4, 1, 7); g.fillRect(7, 4, 1, 7); g.fillRect(9, 4, 1, 7); g.fillRect(11, 4, 1, 7);
         }
-        col(g, 0x6E6A5C); g.fillRect(3, 12, 10, 1);                // sill
+        col(g, 0x6E6A5C); g.fillRect(3, 12, 10, 1);
     }
 
     private void awningArt(Graphics g, int acc) {
@@ -1747,11 +1688,10 @@ public class World {
             col(g, acc); g.fillRect(x, 3, 4, 9);
             col(g, 0xA8A290); g.fillRect(x + 4, 3, 4, 9);
         }
-        col(g, a(acc, 62)); g.fillRect(0, 12, TS, 2);              // shadow under the awning
+        col(g, a(acc, 62)); g.fillRect(0, 12, TS, 2);
         for (int x = 0; x < TS; x += 4) { col(g, a(acc, 130)); g.fillRect(x, 11, 2, 1); }
     }
 
-    /** Double door made of 6 tiles (left/right x top/middle/bottom): 2 tiles wide, about 38 px tall. */
     private void doorArt(Graphics g, int part, int acc) {
         boolean left = (part == P_DLT || part == P_DLM || part == P_DLB);
         boolean top = (part == P_DLT || part == P_DRT);
@@ -1759,14 +1699,14 @@ public class World {
         int x0 = left ? 3 : 0, x1 = left ? 15 : 12;
         int y0 = top ? 8 : 0, y1 = bot ? 13 : 15;
         col(g, a(acc, 40));
-        g.fillRect(x0, y0, x1 - x0 + 1, y1 - y0 + 1);                 // frame
+        g.fillRect(x0, y0, x1 - x0 + 1, y1 - y0 + 1);
         int lx0 = left ? x0 + 1 : x0, lx1 = left ? x1 : x1 - 1;
         int ly0 = top ? y0 + 1 : y0;
         col(g, acc);
-        g.fillRect(lx0, ly0, lx1 - lx0 + 1, y1 - ly0 + 1);            // leaf
+        g.fillRect(lx0, ly0, lx1 - lx0 + 1, y1 - ly0 + 1);
         col(g, a(acc, 125));
         int py = top ? y0 + 3 : y0 + 2;
-        g.fillRect(lx0 + 2, py, lx1 - lx0 - 3, y1 - py - 1);          // panel
+        g.fillRect(lx0 + 2, py, lx1 - lx0 - 3, y1 - py - 1);
         col(g, a(acc, 40));
         if (left) g.fillRect(15, ly0, 1, y1 - ly0 + 1); else g.fillRect(0, ly0, 1, y1 - ly0 + 1);
         if (!top && !bot) {
@@ -1775,7 +1715,8 @@ public class World {
         }
         if (bot) {
             col(g, 0x6E6A5C);
-            g.fillRect(0, 14, TS, 2);                                 // step
+            g.fillRect(0, 14, TS, 2);
         }
     }
 }
+
