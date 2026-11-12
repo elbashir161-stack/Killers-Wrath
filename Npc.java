@@ -8,10 +8,8 @@ public class Npc {
     public static final int P_NORMAL = 0, P_COWARD = 1, P_FROZEN = 2, P_BRAVE = 3, P_PANIC = 4;
     private static final int[] CYCLE = {1, 0, 2, 0};
 
-    // Tile ids from World.java - do not change
     private static final int T_PATH = 1, T_SIDEWALK = 2, T_ZEBRA_V = 8, T_ZEBRA_H = 9, T_PARKING = 10, T_PLAZA = 12, T_SIDEWALK2 = 37;
 
-    // Real zebra centres from your World.java
     private static final int[][] CROSSINGS = {
         {2640, 1488},
         {4592, 1488},
@@ -48,9 +46,10 @@ public class Npc {
     private boolean crossingRoad = false;
     private int knockX, knockY, knockT = 0;
 
-    // FIX FOR VIBRATION: remember which way we are trying, don't flip every frame
     private int persistMx = 0, persistMy = 0;
     private int persistT = 0;
+    // FIX FOR QUEUE: each NPC gets his own lane on the zebra
+    private int crossOffX = 0, crossOffY = 0;
 
     public Npc(int x, int y, int look, int personality) {
         this.x = x;
@@ -60,6 +59,9 @@ public class Npc {
         this.dir = NpcManager.rnd(4);
         this.state = NORMAL;
         this.idle = NpcManager.rnd(40);
+        // Random lane: -24 to +24, so they don't all aim for same pixel
+        crossOffX = NpcManager.rnd(49) - 24;
+        crossOffY = NpcManager.rnd(49) - 24;
     }
 
     public void reset(int nx, int ny) {
@@ -84,6 +86,8 @@ public class Npc {
         persistMx = 0;
         persistMy = 0;
         persistT = 0;
+        crossOffX = NpcManager.rnd(49) - 24;
+        crossOffY = NpcManager.rnd(49) - 24;
     }
 
     public void update(NpcManager m, World w, Player k) {
@@ -181,7 +185,6 @@ public class Npc {
         wdy = 0;
     }
 
-    // ---- TILE CHECKS: THIS IS THE MAIN FIX ----
     private int tileAtPix(World w, int px, int py) {
         return w.tileAt(px / World.TS, py / World.TS);
     }
@@ -196,15 +199,11 @@ public class Npc {
         return t == T_ZEBRA_V || t == T_ZEBRA_H;
     }
 
-    // Can they step here while walking normally?
     private boolean canWalkHere(World w, int nx, int ny) {
         if (!free(nx, ny, w)) return false;
         if (crossingRoad) {
-            // While crossing, ONLY zebra or sidewalk at the ends
             return isZebraTile(w, nx, ny) || isSidewalkTile(w, nx, ny);
         } else {
-            // Normal walk: ONLY sidewalk, never road
-            // If we are going to a crossing, sidewalk only too
             return isSidewalkTile(w, nx, ny) || isZebraTile(w, nx, ny);
         }
     }
@@ -230,8 +229,9 @@ public class Npc {
             if (goingToCrossing) {
                 goingToCrossing = false;
                 crossingRoad = true;
-                targetX = fx;
-                targetY = fy;
+                // Use own lane on the other side too
+                targetX = fx + crossOffX;
+                targetY = fy + crossOffY;
                 persistT = 0;
             } else if (crossingRoad) {
                 crossingRoad = false;
@@ -248,7 +248,6 @@ public class Npc {
 
         int speed = crossingRoad ? 2 : 1;
 
-        // Pick direction, but KEEP it for a while - no flipping every frame
         if (persistT <= 0) {
             int adx = abs(targetX - x);
             int ady = abs(targetY - y);
@@ -259,11 +258,10 @@ public class Npc {
                 persistMx = 0;
                 persistMy = (targetY > y) ? speed : -speed;
             }
-            persistT = 12; // keep this direction for 12 frames
+            persistT = 12;
         }
         persistT--;
 
-        // Try the persistent direction first
         if (tryStep(w, persistMx, persistMy)) {
             animTick++;
             frame = CYCLE[(animTick / 6) % 4];
@@ -271,7 +269,6 @@ public class Npc {
             return;
         }
 
-        // Blocked - try the other axis ONCE, then wait, don't vibrate
         int otherMx = 0, otherMy = 0;
         if (persistMx != 0) {
             otherMy = (targetY > y) ? speed : -speed;
@@ -282,14 +279,12 @@ public class Npc {
             animTick++;
             frame = CYCLE[(animTick / 6) % 4];
             stuckCount = 0;
-            // switch persistent direction to the one that worked
             persistMx = otherMx;
             persistMy = otherMy;
             persistT = 12;
             return;
         }
 
-        // Really stuck - don't shake, just stand and count
         stuckCount++;
         frame = 0;
         if (stuckCount > 40) {
@@ -312,7 +307,6 @@ public class Npc {
 
     private void pickFarTarget(World w) {
         for (int t = 0; t < 40; t++) {
-            // Pick a random point, but it MUST be on sidewalk
             int tx = NpcManager.rnd(10000);
             int ty = NpcManager.rnd(5500);
             if (!isSidewalkTile(w, tx, ty)) continue;
@@ -321,13 +315,10 @@ public class Npc {
             int dy = ty - y;
             if (abs(dx) < 250 && abs(dy) < 250) continue;
 
-            // Do we need to cross? If target is on other side, go via nearest zebra
             int cross = findCrossingFor(tx, ty);
             if (cross >= 0) {
-                // Only cross if crossing is not too far
                 int cx = CROSSINGS[cross][0];
                 int cy = CROSSINGS[cross][1];
-                // If we are already near a crossing, just go direct if target is close
                 if (abs(cx - x) < 30 && abs(cy - y) < 30) {
                     targetX = tx;
                     targetY = ty;
@@ -338,8 +329,9 @@ public class Npc {
                 }
                 fx = tx;
                 fy = ty;
-                targetX = cx;
-                targetY = cy;
+                // FIX: each NPC aims for his own lane, not the centre
+                targetX = cx + crossOffX;
+                targetY = cy + crossOffY;
                 goingToCrossing = true;
                 crossingRoad = false;
                 hasTarget = true;
@@ -359,10 +351,6 @@ public class Npc {
     }
 
     private int findCrossingFor(int tx, int ty) {
-        // If target is on same sidewalk block, no crossing needed
-        // Simple check: if target is far in both X and Y, we likely need to cross
-        // But we only return a crossing if the straight sidewalk path is blocked
-        // For safety, only cross if target is > 400 away
         if (abs(tx - x) < 400 && abs(ty - y) < 400) return -1;
         int best = -1;
         int bestD = 999999;
@@ -460,6 +448,8 @@ public class Npc {
         boolean inside = w.vehicles != null && w.vehicles.hitParked(x, y - 2);
         if (blockedAt(nx - 4, ny - 5, w, inside) || blockedAt(nx + 3, ny - 5, w, inside)
                 || blockedAt(nx - 4, ny - 1, w, inside) || blockedAt(nx + 3, ny - 1, w, inside)) return false;
+        // FIX FOR QUEUE: on zebra, don't block each other, let them pass through
+        if (crossingRoad || goingToCrossing) return true;
         return mgr == null || !mgr.blocks(nx, ny, x, y, this);
     }
 
@@ -483,4 +473,4 @@ public class Npc {
 
     public void drawBubble(Graphics g, Font f, int camX, int camY) {
     }
-}
+        }
