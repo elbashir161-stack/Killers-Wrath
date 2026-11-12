@@ -417,4 +417,4 @@ public class Npc {
 
     public void drawBubble(Graphics g, Font f, int camX, int camY) {
     }
-    }
+}
