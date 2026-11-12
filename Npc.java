@@ -1,420 +1,449 @@
-import javax.microedition.lcdui.Font;
-import javax.microedition.lcdui.Graphics;
-import javax.microedition.lcdui.Image;
+package game;
+
+import java.awt.Graphics;
+import java.awt.Color;
 
 public class Npc {
-    public static final int NORMAL = 0, RECOGNISING = 1, FLEEING = 2, INSIDE = 3, STAND = 4, DEAD = 5;
-    public static final int DOWN = 6, HURT = 7;
-    public static final int P_NORMAL = 0, P_COWARD = 1, P_FROZEN = 2, P_BRAVE = 3, P_PANIC = 4;
-    private static final int[] CYCLE = {1, 0, 2, 0};
 
-    public int x, y, dir, frame, state, personality, look;
-    public int fx, fy;
-    private int animTick, timer, idle, walkT, wdx, wdy, style, stuck, rT, rdx, rdy, sayCool, bubbleT;
-    private int door = -1;
-    private boolean heardOnly;
-    private String bubble;
-    public int hp = 100;
-    public boolean kid = false;
-    private NpcManager mgr;
-    public int hitsTaken = 0;
-    public int downTimer = 0;
+    public static final int IDLE = 0;
+    public static final int WALK = 1;
+    public static final int INSIDE = 2;
+    public static final int TALKING = 3;
+    public static final int DOOR_WAIT = 4;
 
-    // NEW: simple life, no zebra obsession
-    private int targetX, targetY;
-    private boolean hasTarget = false;
-    private int stuckCount = 0;
-    private int knockX, knockY, knockT = 0;
-    private int persistMx = 0, persistMy = 0;
-    private int persistT = 0;
-    private int homeX, homeY; // where this person lives
-    private int insideTimer = 0;
-    private int lifeMode = 0; // 0 = wander near home, 1 = go far, 2 = go inside house
+    public int x, y;
+    public int homeX, homeY;
+    public int dir = 2; // 0 up, 1 down, 2 left, 3 right
+    public int state = IDLE;
+    public int frame = 0;
+    public int idle = 0;
 
-    public Npc(int x, int y, int look, int personality) {
-        this.x = x;
-        this.y = y;
-        this.homeX = x;
-        this.homeY = y;
-        this.look = look;
-        this.personality = personality;
-        this.dir = NpcManager.rnd(4);
-        this.state = NORMAL;
-        this.idle = NpcManager.rnd(40);
+    public int targetX, targetY;
+    public boolean hasTarget = false;
+    public int lifeMode = 0; // 0 walk, 2 inside, 3 stand around home
+
+    // Turn back for fence / wall
+    public boolean turningBack = false;
+    public int turnBackTries = 0;
+    public int turnBackX, turnBackY;
+
+    // Inside
+    public int insideTimer = 0;
+    public boolean wantsToGoInside = false;
+    public boolean wantsToComeOut = false;
+
+    // Door trigger for house to animate
+    public boolean doorOpenRequest = false;
+    public int doorWaitTimer = 0;
+    public boolean doorOpened = false;
+
+    // Talking
+    public Npc talkPartner = null;
+    public int talkTimer = 0;
+    public int talkDotTimer = 0;
+    public int talkDots = 1; // 1 = ., 2 = .., 3 = ...
+    public boolean talkedThisMeeting = false;
+    public int walkAroundTimer = 0;
+    public int walkAroundDir = 0;
+
+    // Fear
+    public boolean isAfraid = false;
+
+    public int speed = 1;
+    public int animTimer = 0;
+
+    public Npc(int startX, int startY, int homeX, int homeY) {
+        this.x = startX;
+        this.y = startY;
+        this.homeX = homeX;
+        this.homeY = homeY;
     }
 
-    public void reset(int nx, int ny) {
-        x = nx;
-        y = ny;
-        homeX = nx;
-        homeY = ny;
-        state = NORMAL;
-        idle = NpcManager.rnd(40);
-        walkT = 0;
-        frame = 0;
-        bubble = null;
-        bubbleT = 0;
-        door = -1;
-        hp = 100;
-        hitsTaken = 0;
-        downTimer = 0;
-        hasTarget = false;
-        knockT = 0;
-        knockX = 0;
-        knockY = 0;
-        persistMx = 0;
-        persistMy = 0;
-        persistT = 0;
-        insideTimer = 0;
-        lifeMode = 0;
-    }
+    // ============ MAIN UPDATE ============
+    public void update(World w, NpcManager manager, Player k, boolean playerIsVampire) {
+        // Door wait
+        if (state == DOOR_WAIT) {
+            doorWaitTimer--;
+            if (doorWaitTimer <= 0) {
+                doorOpenRequest = false;
+                doorOpened = true;
+                // After door opens, finish going in / out
+                if (wantsToGoInside) {
+                    state = INSIDE;
+                    insideTimer = 300 + NpcManager.rnd(600);
+                    wantsToGoInside = false;
+                    hasTarget = false;
+                } else if (wantsToComeOut) {
+                    state = IDLE;
+                    wantsToComeOut = false;
+                    hasTarget = false;
+                    pickLifeTarget(w);
+                }
+            }
+            return;
+        }
 
-    public void update(NpcManager m, World w, Player k) {
-        mgr = m;
-        bubble = null;
-        bubbleT = 0;
-        if (state == DEAD) return;
-
-        // Inside house - hidden for a while, like they went home
+        // Inside timer
         if (state == INSIDE) {
             insideTimer--;
             if (insideTimer <= 0) {
-                state = NORMAL;
-                hasTarget = false;
-                idle = 10;
-                // Come out in front of house
-                x = homeX + NpcManager.rnd(60) - 30;
-                y = homeY + NpcManager.rnd(60) - 30;
+                // Come out - trigger door
+                wantsToComeOut = true;
+                doorOpenRequest = true;
+                doorWaitTimer = 30; // 0.5 sec door open
+                state = DOOR_WAIT;
+                // Appear at door
+                x = homeX;
+                y = homeY + 20;
             }
             return;
         }
 
-        if (knockT > 0) {
-            knockT--;
-            for (int i = 0; i < 2; i++) {
-                int nx = x + knockX;
-                int ny = y + knockY;
-                if (free(nx, ny, w)) {
+        // Talking
+        if (state == TALKING) {
+            // Animate dots: . -> .. -> ...
+            talkDotTimer++;
+            if (talkDotTimer > 20) {
+                talkDotTimer = 0;
+                talkDots++;
+                if (talkDots > 3) talkDots = 1;
+            }
+            talkTimer--;
+            frame = 0;
+            // Face partner
+            if (talkPartner != null) {
+                if (talkPartner.x < x) dir = 2;
+                else if (talkPartner.x > x) dir = 3;
+                else if (talkPartner.y < y) dir = 0;
+                else dir = 1;
+            }
+            if (talkTimer <= 0) {
+                // Finish talking, now walk around each other
+                state = WALK;
+                if (talkPartner != null) {
+                    talkPartner.state = WALK;
+                    talkPartner.talkPartner = null;
+                    talkPartner.talkedThisMeeting = true;
+                }
+                talkPartner = null;
+                talkedThisMeeting = true;
+                // Walk around: step left / right for a bit
+                walkAroundTimer = 30;
+                walkAroundDir = NpcManager.rnd(2); // 0 left, 1 right
+                hasTarget = false;
+            }
+            return;
+        }
+
+        // Walk around after talking - step aside
+        if (walkAroundTimer > 0) {
+            walkAroundTimer--;
+            int sx = 0, sy = 0;
+            if (walkAroundDir == 0) sx = -1;
+            else sx = 1;
+            int nx = x + sx;
+            int ny = y;
+            if (free(nx, ny, w) && !w.isRoad(nx, ny)) {
+                x = nx;
+                y = ny;
+            }
+            if (walkAroundTimer <= 0) {
+                pickLifeTarget(w);
+            }
+            return;
+        }
+
+        // Fear of you
+        isAfraid = false;
+        if (k != null) {
+            int dx = x - k.x;
+            int dy = y - k.y;
+            int dist = (int)Math.sqrt(dx*dx + dy*dy);
+            int fearRange = playerIsVampire ? 120 : 40;
+            if (dist < fearRange && dist > 0) {
+                isAfraid = true;
+                // Step away faster
+                int stepX = 0, stepY = 0;
+                if (Math.abs(dx) > Math.abs(dy)) stepX = dx > 0 ? 2 : -2;
+                else stepY = dy > 0 ? 2 : -2;
+                int nx = x + stepX;
+                int ny = y + stepY;
+                if (free(nx, ny, w) && !w.isRoad(nx, ny)) {
                     x = nx;
                     y = ny;
-                } else {
-                    knockT = 0;
-                    break;
+                    state = WALK;
+                    if (stepX > 0) dir = 3;
+                    else if (stepX < 0) dir = 2;
+                    else if (stepY > 0) dir = 1;
+                    else dir = 0;
+                    animTimer++;
+                    if (animTimer > 8) { animTimer = 0; frame++; if (frame > 3) frame = 0; }
                 }
-            }
-            if (knockT % 3 == 0) {
-                if (knockX > 0) knockX--;
-                else if (knockX < 0) knockX++;
-                if (knockY > 0) knockY--;
-                else if (knockY < 0) knockY++;
-            }
-            return;
-        }
-
-        if (state == DOWN) {
-            downTimer--;
-            if (downTimer <= 0) {
-                if (hitsTaken >= maxHits() - 1) {
-                    state = HURT;
-                    timer = 120;
-                } else {
-                    state = FLEEING;
-                    timer = 150;
-                    pickEscapeDir(w);
+                // Vampire = run inside
+                if (playerIsVampire && dist < 70) {
+                    wantsToGoInside = true;
+                    doorOpenRequest = true;
+                    doorWaitTimer = 30;
+                    state = DOOR_WAIT;
                 }
-                frame = 0;
-            }
-            return;
-        }
-
-        if (state == HURT) {
-            timer--;
-            if (timer <= 0) {
-                state = FLEEING;
-                timer = 150;
-                pickEscapeDir(w);
-            }
-            if (timer % 2 == 0) {
-                walk(w, wdx, wdy);
-            }
-            return;
-        }
-
-        if (state == FLEEING) {
-            timer--;
-            if (timer <= 0) {
-                state = NORMAL;
-                idle = 20;
-                return;
-            }
-            if (walk(w, wdx * 2, wdy * 2)) {
-                animTick++;
-                frame = CYCLE[(animTick / 4) % 4];
-            } else {
-                pickEscapeDir(w);
-            }
-            return;
-        }
-
-        state = NORMAL;
-        updateNormal(w, k);
-    }
-
-    private int maxHits() {
-        return kid ? 2 : 3;
-    }
-
-    private void pickEscapeDir(World w) {
-        int[][] dirs = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
-        for (int i = 0; i < 4; i++) {
-            int d = NpcManager.rnd(4);
-            if (free(x + dirs[d][0] * 6, y + dirs[d][1] * 6, w)) {
-                wdx = dirs[d][0];
-                wdy = dirs[d][1];
                 return;
             }
         }
-        wdx = 1;
-        wdy = 0;
-    }
 
-    private void updateNormal(World w, Player k) {
+        // Idle / standing
         if (idle > 0) {
             idle--;
             frame = 0;
+            if (idle == 1 && NpcManager.rnd(3) == 0) dir = NpcManager.rnd(4);
             return;
         }
 
         if (!hasTarget) {
             pickLifeTarget(w);
             if (!hasTarget) {
-                idle = 20;
+                idle = 60 + NpcManager.rnd(120);
                 return;
             }
         }
 
-        // Reached target?
-        if (abs(targetX - x) < 10 && abs(targetY - y) < 10) {
-            hasTarget = false;
-            // If we were going home, go inside
-            if (lifeMode == 2) {
-                state = INSIDE;
-                insideTimer = 300 + NpcManager.rnd(600); // stay inside 5-15 seconds
-                return;
+        updateNormal(w, manager, k);
+    }
+
+    // ============ WALKING ============
+    private void updateNormal(World w, NpcManager manager, Player k) {
+        // Check for talking BEFORE walking around each other
+        if (!talkedThisMeeting && manager != null) {
+            for (Npc other : manager.npcs) {
+                if (other == this) continue;
+                if (other.state == TALKING || other.state == INSIDE) continue;
+                int dx = Math.abs(other.x - x);
+                int dy = Math.abs(other.y - y);
+                if (dx < 20 && dy < 20) {
+                    // 7 out of 10 times talk, 3 times just walk around
+                    if (NpcManager.rnd(10) < 7) {
+                        state = TALKING;
+                        talkPartner = other;
+                        talkTimer = 180 + NpcManager.rnd(60); // 3-4 sec
+                        talkDotTimer = 0;
+                        talkDots = 1;
+                        other.state = TALKING;
+                        other.talkPartner = this;
+                        other.talkTimer = talkTimer;
+                        other.talkDotTimer = 0;
+                        other.talkDots = 1;
+                        hasTarget = false;
+                        other.hasTarget = false;
+                        return;
+                    } else {
+                        talkedThisMeeting = true;
+                        walkAroundTimer = 25;
+                        walkAroundDir = NpcManager.rnd(2);
+                        return;
+                    }
+                }
             }
-            // Otherwise stand, look around, like they have something to do
-            idle = 30 + NpcManager.rnd(120);
+        }
+        // Reset talked flag when far apart
+        if (talkPartner == null) {
+            boolean stillClose = false;
+            if (manager != null) {
+                for (Npc other : manager.npcs) {
+                    if (other == this) continue;
+                    if (Math.abs(other.x - x) < 40 && Math.abs(other.y - y) < 40) stillClose = true;
+                }
+            }
+            if (!stillClose) talkedThisMeeting = false;
+        }
+
+        int dx = targetX - x;
+        int dy = targetY - y;
+
+        // Reached target
+        if (Math.abs(dx) < 10 && Math.abs(dy) < 10) {
+            hasTarget = false;
+            state = IDLE;
             frame = 0;
-            // Sometimes change direction like looking around
-            if (NpcManager.rnd(3) == 0) dir = NpcManager.rnd(4);
-            return;
-        }
-
-        int speed = 1;
-        // If they are far from home, walk a bit faster to get there
-        if (lifeMode == 1) speed = 2;
-
-        if (persistT <= 0) {
-            int adx = abs(targetX - x);
-            int ady = abs(targetY - y);
-            if (adx > ady) {
-                persistMx = (targetX > x) ? speed : -speed;
-                persistMy = 0;
-            } else {
-                persistMx = 0;
-                persistMy = (targetY > y) ? speed : -speed;
+            // Go inside - trigger door
+            if (lifeMode == 2) {
+                wantsToGoInside = true;
+                doorOpenRequest = true;
+                doorWaitTimer = 30;
+                state = DOOR_WAIT;
+                return;
             }
-            persistT = 15;
-        }
-        persistT--;
-
-        if (tryStep(w, persistMx, persistMy)) {
-            animTick++;
-            frame = CYCLE[(animTick / 6) % 4];
-            stuckCount = 0;
+            // Stand around home - stand long time
+            if (lifeMode == 3) {
+                idle = 300 + NpcManager.rnd(400); // 5-10 sec standing
+                frame = 0;
+                if (NpcManager.rnd(3) == 0) dir = NpcManager.rnd(4);
+                return;
+            }
+            idle = 60 + NpcManager.rnd(180);
             return;
         }
 
-        // Try other axis
-        int otherMx = 0, otherMy = 0;
-        if (persistMx != 0) {
-            otherMy = (targetY > y) ? speed : -speed;
-        } else {
-            otherMx = (targetX > x) ? speed : -speed;
-        }
-        if (tryStep(w, otherMx, otherMy)) {
-            animTick++;
-            frame = CYCLE[(animTick / 6) % 4];
-            stuckCount = 0;
-            persistMx = otherMx;
-            persistMy = otherMy;
-            persistT = 15;
+        // Turning back from fence
+        if (turningBack) {
+            int bdx = turnBackX - x;
+            int bdy = turnBackY - y;
+            if (Math.abs(bdx) < 10 && Math.abs(bdy) < 10) {
+                turningBack = false;
+                hasTarget = false;
+                pickLifeTarget(w);
+                return;
+            }
+            if (!moveStep(bdx, bdy, w, manager, k)) {
+                turningBack = false;
+                hasTarget = false;
+            }
             return;
         }
 
-        // Stuck - don't vibrate, just pick a new life target
-        stuckCount++;
-        frame = 0;
-        if (stuckCount > 25) {
-            stuckCount = 0;
-            persistT = 0;
-            hasTarget = false;
-            idle = 10;
+        // Normal move to target
+        if (!moveStep(dx, dy, w, manager, k)) {
+            // Blocked by fence / wall - turn back 120px
+            turnBackTries++;
+            if (turnBackTries > 2) {
+                hasTarget = false;
+                turnBackTries = 0;
+                pickLifeTarget(w);
+                return;
+            }
+            turningBack = true;
+            // Go opposite direction 120px
+            int backX = x - (dx > 0 ? 120 : dx < 0 ? -120 : 0);
+            int backY = y - (dy > 0 ? 120 : dy < 0 ? -120 : 0);
+            if (backX == x && backY == y) backX = x - 120;
+            turnBackX = backX;
+            turnBackY = backY;
         }
     }
 
-    private boolean tryStep(World w, int mx, int my) {
-        if (mx == 0 && my == 0) return false;
-        int nx = x + mx;
-        int ny = y + my;
-        // NEW: can walk ANYWHERE that is not solid - road, walkway, compound, in front of house
-        // No more "only sidewalk" rule. That was the problem.
+    // ============ MOVE ONE STEP WITH GAP + NO ROAD ============
+    private boolean moveStep(int dx, int dy, World w, NpcManager manager, Player k) {
+        int stepX = 0, stepY = 0;
+        if (Math.abs(dx) > Math.abs(dy)) stepX = dx > 0 ? speed : -speed;
+        else stepY = dy > 0 ? speed : -speed;
+
+        int nx = x + stepX;
+        int ny = y + stepY;
+
+        // NEVER step on road
+        if (w.isRoad(nx, ny)) return false;
         if (!free(nx, ny, w)) return false;
-        return walk(w, mx, my);
+
+        // Gap from other NPCs - 14px
+        if (manager != null) {
+            for (Npc other : manager.npcs) {
+                if (other == this) continue;
+                if (other.state == INSIDE) continue;
+                int odx = nx - other.x;
+                int ody = ny - other.y;
+                if (Math.abs(odx) < 14 && Math.abs(ody) < 14) return false;
+            }
+        }
+
+        // Gap from you - 16px
+        if (k != null) {
+            int pdx = nx - k.x;
+            int pdy = ny - k.y;
+            if (Math.abs(pdx) < 16 && Math.abs(pdy) < 16) return false;
+        }
+
+        x = nx;
+        y = ny;
+        state = WALK;
+        if (stepX > 0) dir = 3;
+        else if (stepX < 0) dir = 2;
+        else if (stepY > 0) dir = 1;
+        else dir = 0;
+        animTimer++;
+        if (animTimer > 8) { animTimer = 0; frame++; if (frame > 3) frame = 0; }
+        return true;
     }
 
-    // NEW LIFE SYSTEM
+    // ============ PICK TARGET - MOST HOME, FEW WALK ============
     private void pickLifeTarget(World w) {
         int roll = NpcManager.rnd(100);
+
         for (int t = 0; t < 30; t++) {
             int tx, ty;
-            if (roll < 70) {
-                // 70% - Wander near home: around houses, compound, front of house
-                // Stay within 250px of home, so they look like they live there
-                tx = homeX + NpcManager.rnd(501) - 250;
-                ty = homeY + NpcManager.rnd(501) - 250;
-                lifeMode = 0;
-            } else if (roll < 85) {
-                // 15% - Go home / enter house
+
+            if (roll < 50) {
+                // 50% - GO INSIDE HOME
                 tx = homeX + NpcManager.rnd(40) - 20;
                 ty = homeY + NpcManager.rnd(40) - 20;
                 lifeMode = 2;
+            } else if (roll < 85) {
+                // 35% - STAND AROUND HOME
+                tx = homeX + NpcManager.rnd(60) - 30;
+                ty = homeY + NpcManager.rnd(60) - 30;
+                lifeMode = 3;
             } else {
-                // 15% - Go far, to another area - this is the ONLY time they cross road
-                // They just walk straight across, they don't hunt for zebra
-                tx = NpcManager.rnd(10000);
-                ty = NpcManager.rnd(5500);
-                lifeMode = 1;
-                // New home after far trip - they moved area, so they don't ping-pong back
-                homeX = tx;
-                homeY = ty;
+                // Only 15% - WALKING AROUND
+                int dist = 100 + NpcManager.rnd(101);
+                int angle = NpcManager.rnd(4);
+                tx = homeX;
+                ty = homeY;
+                if (angle == 0) tx += dist;
+                else if (angle == 1) tx -= dist;
+                else if (angle == 2) ty += dist;
+                else ty -= dist;
+                lifeMode = 0;
             }
+
             if (tx < 0 || ty < 0) continue;
             if (!free(tx, ty, w)) continue;
-            // Don't pick a target too close, otherwise they do 2 steps back and forth
-            if (abs(tx - x) < 60 && abs(ty - y) < 60) continue;
+            // NEVER pick target ON road
+            if (w.isRoad(tx, ty)) continue;
+            if (Math.abs(tx - x) < 60 && Math.abs(ty - y) < 60 && lifeMode != 3) continue;
+
             targetX = tx;
             targetY = ty;
             hasTarget = true;
-            persistT = 0;
+            turningBack = false;
+            turnBackTries = 0;
             return;
         }
         hasTarget = false;
     }
 
-    public void startRecognise(int sx, int sy, boolean heard, int delay) {
+    // ============ FREE CHECK ============
+    private boolean free(int tx, int ty, World w) {
+        // Use your World collision here - wall, fence, house wall, etc.
+        // Example: return w.isFree(tx, ty);
+        // If you already have a method, keep it. This is placeholder:
+        return w.isFree(tx, ty);
     }
 
-    public void hitByCar(int carSpeed, NpcManager m, int sx, int sy) {
-        if (state == DEAD || state == INSIDE) return;
-        int hits = 1;
-        if (carSpeed >= 40) hits = 2;
-        for (int i = 0; i < hits; i++) {
-            hurt(40, m, sx, sy);
-            if (state == DEAD) break;
-            if (state == DOWN && hits == 2 && i == 0) break;
-        }
-    }
-
-    public void hurt(int dmg, NpcManager m, int sx, int sy) {
-        if (state == DEAD || state == INSIDE) return;
-        hitsTaken++;
-        hp -= dmg;
-        m.addBlood(x, y - 6, dmg >= 60 ? 2 : (dmg >= 30 ? 1 : 0));
-
-        int dx = x - sx;
-        int dy = y - sy;
-        if (dx == 0 && dy == 0) {
-            dx = (dir == Sprites.LEFT) ? -1 : (dir == Sprites.RIGHT ? 1 : 0);
-            dy = (dir == Sprites.UP) ? -1 : (dir == Sprites.DOWN ? 1 : 0);
-            if (dx == 0 && dy == 0) dx = 1;
-        }
-        if (dx > 0) dx = 1; else if (dx < 0) dx = -1;
-        if (dy > 0) dy = 1; else if (dy < 0) dy = -1;
-
-        int power = 4;
-        if (dmg >= 40) power = 6;
-        if (hitsTaken > 1) power += 2;
-
-        knockX = dx * power;
-        knockY = dy * power;
-        knockT = 10;
-
-        hasTarget = false;
-
-        if (hitsTaken >= maxHits()) {
-            state = DEAD;
-            frame = 0;
-            bubble = null;
-            m.kills++;
-            knockT = 12;
-            return;
-        }
-        state = DOWN;
-        downTimer = 75;
-        frame = 0;
-        bubble = null;
-    }
-
-    private boolean walk(World w, int mx, int my) {
-        boolean movedX = false, movedY = false;
-        if (mx != 0) movedX = moveAxis(w, mx < 0 ? -1 : 1, 0, abs(mx));
-        if (my != 0) movedY = moveAxis(w, 0, my < 0 ? -1 : 1, abs(my));
-        if (movedX) dir = (mx < 0) ? Sprites.LEFT : Sprites.RIGHT;
-        else if (movedY) dir = (my < 0) ? Sprites.UP : Sprites.DOWN;
-        return movedX || movedY;
-    }
-
-    private boolean moveAxis(World w, int dx, int dy, int steps) {
-        boolean moved = false;
-        for (int i = 0; i < steps; i++) {
-            int nx = x + dx, ny = y + dy;
-            if (free(nx, ny, w)) {
-                x = nx;
-                y = ny;
-                moved = true;
-            } else {
-                break;
-            }
-        }
-        return moved;
-    }
-
-    private boolean free(int nx, int ny, World w) {
-        boolean inside = w.vehicles != null && w.vehicles.hitParked(x, y - 2);
-        if (blockedAt(nx - 4, ny - 5, w, inside) || blockedAt(nx + 3, ny - 5, w, inside)
-                || blockedAt(nx - 4, ny - 1, w, inside) || blockedAt(nx + 3, ny - 1, w, inside)) return false;
-        return mgr == null || !mgr.blocks(nx, ny, x, y, this);
-    }
-
-    private boolean blockedAt(int px, int py, World w, boolean ignoreVehicles) {
-        return ignoreVehicles ? w.solidTerrain(px, py) : w.solidAt(px, py);
-    }
-
-    private static int abs(int v) { return v < 0 ? -v : v; }
-
+    // ============ DRAW - INCLUDES TALKING BOX ============
     public void draw(Graphics g, int camX, int camY) {
-        if (state == INSIDE || state == DEAD) return;
-        if (kid) {
-            Image ki = NpcSprites.kids[look][dir][frame];
-            g.drawImage(ki, x - ki.getWidth() / 2 - camX, y - (ki.getHeight() - 1) - camY,
-                    Graphics.TOP | Graphics.LEFT);
-            return;
-        }
-        g.drawImage(NpcSprites.looks[look][dir][frame], x - NpcSprites.W / 2 - camX, y - (NpcSprites.H - 2) - camY,
-                Graphics.TOP | Graphics.LEFT);
-    }
+        int sx = x - camX;
+        int sy = y - camY;
 
-    public void drawBubble(Graphics g, Font f, int camX, int camY) {
+        // Don't draw if inside
+        if (state == INSIDE) return;
+
+        // Draw body via your sprites - keep your existing draw here
+        NpcSprites.draw(g, sx, sy, dir, frame, this);
+
+        // Talking box - small, on top of head, dots animate
+        if (state == TALKING) {
+            String dots = "";
+            if (talkDots == 1) dots = ".";
+            else if (talkDots == 2) dots = "..";
+            else dots = "...";
+
+            int boxW = 26;
+            int boxH = 14;
+            int bx = sx - 5;
+            int by = sy - 28;
+
+            g.setColor(Color.WHITE);
+            g.fillRect(bx, by, boxW, boxH);
+            g.setColor(Color.BLACK);
+            g.drawRect(bx, by, boxW, boxH);
+            g.drawString(dots, bx + 6, by + 11);
+        }
     }
 }
