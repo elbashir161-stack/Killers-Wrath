@@ -8,25 +8,6 @@ public class Npc {
     public static final int P_NORMAL = 0, P_COWARD = 1, P_FROZEN = 2, P_BRAVE = 3, P_PANIC = 4;
     private static final int[] CYCLE = {1, 0, 2, 0};
 
-    private static final int T_PATH = 1, T_SIDEWALK = 2, T_ZEBRA_V = 8, T_ZEBRA_H = 9, T_PARKING = 10, T_PLAZA = 12, T_SIDEWALK2 = 37;
-
-    private static final int[][] CROSSINGS = {
-        {2640, 1488},
-        {4592, 1488},
-        {6192, 1488},
-        {7536, 1488},
-        {2640, 2640},
-        {4592, 2640},
-        {6192, 2640},
-        {7536, 2640},
-        {2640, 3792},
-        {4592, 3792},
-        {6192, 3792},
-        {2640, 4960},
-        {4592, 4960},
-        {6192, 4960},
-    };
-
     public int x, y, dir, frame, state, personality, look;
     public int fx, fy;
     private int animTick, timer, idle, walkT, wdx, wdy, style, stuck, rT, rdx, rdy, sayCool, bubbleT;
@@ -39,34 +20,34 @@ public class Npc {
     public int hitsTaken = 0;
     public int downTimer = 0;
 
+    // NEW: simple life, no zebra obsession
     private int targetX, targetY;
     private boolean hasTarget = false;
     private int stuckCount = 0;
-    private boolean goingToCrossing = false;
-    private boolean crossingRoad = false;
     private int knockX, knockY, knockT = 0;
-
     private int persistMx = 0, persistMy = 0;
     private int persistT = 0;
-    // FIX FOR QUEUE: each NPC gets his own lane on the zebra
-    private int crossOffX = 0, crossOffY = 0;
+    private int homeX, homeY; // where this person lives
+    private int insideTimer = 0;
+    private int lifeMode = 0; // 0 = wander near home, 1 = go far, 2 = go inside house
 
     public Npc(int x, int y, int look, int personality) {
         this.x = x;
         this.y = y;
+        this.homeX = x;
+        this.homeY = y;
         this.look = look;
         this.personality = personality;
         this.dir = NpcManager.rnd(4);
         this.state = NORMAL;
         this.idle = NpcManager.rnd(40);
-        // Random lane: -24 to +24, so they don't all aim for same pixel
-        crossOffX = NpcManager.rnd(49) - 24;
-        crossOffY = NpcManager.rnd(49) - 24;
     }
 
     public void reset(int nx, int ny) {
         x = nx;
         y = ny;
+        homeX = nx;
+        homeY = ny;
         state = NORMAL;
         idle = NpcManager.rnd(40);
         walkT = 0;
@@ -78,16 +59,14 @@ public class Npc {
         hitsTaken = 0;
         downTimer = 0;
         hasTarget = false;
-        goingToCrossing = false;
-        crossingRoad = false;
         knockT = 0;
         knockX = 0;
         knockY = 0;
         persistMx = 0;
         persistMy = 0;
         persistT = 0;
-        crossOffX = NpcManager.rnd(49) - 24;
-        crossOffY = NpcManager.rnd(49) - 24;
+        insideTimer = 0;
+        lifeMode = 0;
     }
 
     public void update(NpcManager m, World w, Player k) {
@@ -95,6 +74,20 @@ public class Npc {
         bubble = null;
         bubbleT = 0;
         if (state == DEAD) return;
+
+        // Inside house - hidden for a while, like they went home
+        if (state == INSIDE) {
+            insideTimer--;
+            if (insideTimer <= 0) {
+                state = NORMAL;
+                hasTarget = false;
+                idle = 10;
+                // Come out in front of house
+                x = homeX + NpcManager.rnd(60) - 30;
+                y = homeY + NpcManager.rnd(60) - 30;
+            }
+            return;
+        }
 
         if (knockT > 0) {
             knockT--;
@@ -185,29 +178,6 @@ public class Npc {
         wdy = 0;
     }
 
-    private int tileAtPix(World w, int px, int py) {
-        return w.tileAt(px / World.TS, py / World.TS);
-    }
-
-    private boolean isSidewalkTile(World w, int px, int py) {
-        int t = tileAtPix(w, px, py);
-        return t == T_SIDEWALK || t == T_SIDEWALK2 || t == T_PATH || t == T_PLAZA || t == T_PARKING;
-    }
-
-    private boolean isZebraTile(World w, int px, int py) {
-        int t = tileAtPix(w, px, py);
-        return t == T_ZEBRA_V || t == T_ZEBRA_H;
-    }
-
-    private boolean canWalkHere(World w, int nx, int ny) {
-        if (!free(nx, ny, w)) return false;
-        if (crossingRoad) {
-            return isZebraTile(w, nx, ny) || isSidewalkTile(w, nx, ny);
-        } else {
-            return isSidewalkTile(w, nx, ny) || isZebraTile(w, nx, ny);
-        }
-    }
-
     private void updateNormal(World w, Player k) {
         if (idle > 0) {
             idle--;
@@ -216,37 +186,33 @@ public class Npc {
         }
 
         if (!hasTarget) {
-            pickFarTarget(w);
+            pickLifeTarget(w);
             if (!hasTarget) {
                 idle = 20;
                 return;
             }
         }
 
-        int dxToTarget = targetX - x;
-        int dyToTarget = targetY - y;
-        if (abs(dxToTarget) < 8 && abs(dyToTarget) < 8) {
-            if (goingToCrossing) {
-                goingToCrossing = false;
-                crossingRoad = true;
-                // Use own lane on the other side too
-                targetX = fx + crossOffX;
-                targetY = fy + crossOffY;
-                persistT = 0;
-            } else if (crossingRoad) {
-                crossingRoad = false;
-                hasTarget = false;
-                idle = 20 + NpcManager.rnd(60);
-                return;
-            } else {
-                hasTarget = false;
-                idle = 10 + NpcManager.rnd(40);
-                frame = 0;
+        // Reached target?
+        if (abs(targetX - x) < 10 && abs(targetY - y) < 10) {
+            hasTarget = false;
+            // If we were going home, go inside
+            if (lifeMode == 2) {
+                state = INSIDE;
+                insideTimer = 300 + NpcManager.rnd(600); // stay inside 5-15 seconds
                 return;
             }
+            // Otherwise stand, look around, like they have something to do
+            idle = 30 + NpcManager.rnd(120);
+            frame = 0;
+            // Sometimes change direction like looking around
+            if (NpcManager.rnd(3) == 0) dir = NpcManager.rnd(4);
+            return;
         }
 
-        int speed = crossingRoad ? 2 : 1;
+        int speed = 1;
+        // If they are far from home, walk a bit faster to get there
+        if (lifeMode == 1) speed = 2;
 
         if (persistT <= 0) {
             int adx = abs(targetX - x);
@@ -258,7 +224,7 @@ public class Npc {
                 persistMx = 0;
                 persistMy = (targetY > y) ? speed : -speed;
             }
-            persistT = 12;
+            persistT = 15;
         }
         persistT--;
 
@@ -269,6 +235,7 @@ public class Npc {
             return;
         }
 
+        // Try other axis
         int otherMx = 0, otherMy = 0;
         if (persistMx != 0) {
             otherMy = (targetY > y) ? speed : -speed;
@@ -281,19 +248,18 @@ public class Npc {
             stuckCount = 0;
             persistMx = otherMx;
             persistMy = otherMy;
-            persistT = 12;
+            persistT = 15;
             return;
         }
 
+        // Stuck - don't vibrate, just pick a new life target
         stuckCount++;
         frame = 0;
-        if (stuckCount > 40) {
+        if (stuckCount > 25) {
             stuckCount = 0;
             persistT = 0;
             hasTarget = false;
-            goingToCrossing = false;
-            crossingRoad = false;
-            idle = 15;
+            idle = 10;
         }
     }
 
@@ -301,67 +267,49 @@ public class Npc {
         if (mx == 0 && my == 0) return false;
         int nx = x + mx;
         int ny = y + my;
-        if (!canWalkHere(w, nx, ny)) return false;
+        // NEW: can walk ANYWHERE that is not solid - road, walkway, compound, in front of house
+        // No more "only sidewalk" rule. That was the problem.
+        if (!free(nx, ny, w)) return false;
         return walk(w, mx, my);
     }
 
-    private void pickFarTarget(World w) {
-        for (int t = 0; t < 40; t++) {
-            int tx = NpcManager.rnd(10000);
-            int ty = NpcManager.rnd(5500);
-            if (!isSidewalkTile(w, tx, ty)) continue;
-            if (!free(tx, ty, w)) continue;
-            int dx = tx - x;
-            int dy = ty - y;
-            if (abs(dx) < 250 && abs(dy) < 250) continue;
-
-            int cross = findCrossingFor(tx, ty);
-            if (cross >= 0) {
-                int cx = CROSSINGS[cross][0];
-                int cy = CROSSINGS[cross][1];
-                if (abs(cx - x) < 30 && abs(cy - y) < 30) {
-                    targetX = tx;
-                    targetY = ty;
-                    hasTarget = true;
-                    goingToCrossing = false;
-                    crossingRoad = false;
-                    return;
-                }
-                fx = tx;
-                fy = ty;
-                // FIX: each NPC aims for his own lane, not the centre
-                targetX = cx + crossOffX;
-                targetY = cy + crossOffY;
-                goingToCrossing = true;
-                crossingRoad = false;
-                hasTarget = true;
-                persistT = 0;
-                return;
+    // NEW LIFE SYSTEM
+    private void pickLifeTarget(World w) {
+        int roll = NpcManager.rnd(100);
+        for (int t = 0; t < 30; t++) {
+            int tx, ty;
+            if (roll < 70) {
+                // 70% - Wander near home: around houses, compound, front of house
+                // Stay within 250px of home, so they look like they live there
+                tx = homeX + NpcManager.rnd(501) - 250;
+                ty = homeY + NpcManager.rnd(501) - 250;
+                lifeMode = 0;
+            } else if (roll < 85) {
+                // 15% - Go home / enter house
+                tx = homeX + NpcManager.rnd(40) - 20;
+                ty = homeY + NpcManager.rnd(40) - 20;
+                lifeMode = 2;
+            } else {
+                // 15% - Go far, to another area - this is the ONLY time they cross road
+                // They just walk straight across, they don't hunt for zebra
+                tx = NpcManager.rnd(10000);
+                ty = NpcManager.rnd(5500);
+                lifeMode = 1;
+                // New home after far trip - they moved area, so they don't ping-pong back
+                homeX = tx;
+                homeY = ty;
             }
-
+            if (tx < 0 || ty < 0) continue;
+            if (!free(tx, ty, w)) continue;
+            // Don't pick a target too close, otherwise they do 2 steps back and forth
+            if (abs(tx - x) < 60 && abs(ty - y) < 60) continue;
             targetX = tx;
             targetY = ty;
             hasTarget = true;
-            goingToCrossing = false;
-            crossingRoad = false;
             persistT = 0;
             return;
         }
         hasTarget = false;
-    }
-
-    private int findCrossingFor(int tx, int ty) {
-        if (abs(tx - x) < 400 && abs(ty - y) < 400) return -1;
-        int best = -1;
-        int bestD = 999999;
-        for (int i = 0; i < CROSSINGS.length; i++) {
-            int d = abs(CROSSINGS[i][0] - x) + abs(CROSSINGS[i][1] - y);
-            if (d < bestD) {
-                bestD = d;
-                best = i;
-            }
-        }
-        return best;
     }
 
     public void startRecognise(int sx, int sy, boolean heard, int delay) {
@@ -403,8 +351,6 @@ public class Npc {
         knockT = 10;
 
         hasTarget = false;
-        goingToCrossing = false;
-        crossingRoad = false;
 
         if (hitsTaken >= maxHits()) {
             state = DEAD;
@@ -448,8 +394,6 @@ public class Npc {
         boolean inside = w.vehicles != null && w.vehicles.hitParked(x, y - 2);
         if (blockedAt(nx - 4, ny - 5, w, inside) || blockedAt(nx + 3, ny - 5, w, inside)
                 || blockedAt(nx - 4, ny - 1, w, inside) || blockedAt(nx + 3, ny - 1, w, inside)) return false;
-        // FIX FOR QUEUE: on zebra, don't block each other, let them pass through
-        if (crossingRoad || goingToCrossing) return true;
         return mgr == null || !mgr.blocks(nx, ny, x, y, this);
     }
 
@@ -473,4 +417,4 @@ public class Npc {
 
     public void drawBubble(Graphics g, Font f, int camX, int camY) {
     }
-        }
+    }
